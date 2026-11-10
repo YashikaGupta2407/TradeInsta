@@ -2,7 +2,7 @@
 """Tests for app.py helper functions, integrations, and badges."""
 
 import unittest
-from app import load_universe, resolve_symbol, get_badge_info, SYM_TO_NAME
+from app import load_universe, resolve_symbol, get_badge_info, load_market_deals, flow_mod, SYM_TO_NAME
 
 
 class TestApp(unittest.TestCase):
@@ -45,6 +45,33 @@ class TestApp(unittest.TestCase):
     def test_badge_delayed_yahoo(self):
         info = get_badge_info(is_sample=False, is_open=True, data_source="yahoo", bar_age="16m")
         self.assertEqual(info["label"], "DELAYED (Yahoo)")
+
+    def test_load_market_deals_sample_mode(self):
+        deals, source_note = load_market_deals(is_sample_mode=True)
+        self.assertGreater(len(deals), 0)
+        self.assertIn("Sample", source_note)
+
+    def test_load_market_deals_empty_dir_graceful(self):
+        # In default workspace without added CSVs, trader/flow returns empty list
+        deals, source_note = load_market_deals(is_sample_mode=False)
+        self.assertIsInstance(deals, list)
+
+    def test_symbol_flow_with_and_without_deals(self):
+        deals, _ = load_market_deals(is_sample_mode=True)
+        # Stock with deals
+        summary_rel = flow_mod.get_symbol_flow_summary(deals, "RELIANCE")
+        self.assertGreater(summary_rel["total_deals"], 0)
+        self.assertGreater(summary_rel["buy_value_inr"] + summary_rel["sell_value_inr"], 0)
+
+        # Stock without deals
+        summary_unknown = flow_mod.get_symbol_flow_summary(deals, "NONEXISTENTSTOCK")
+        self.assertEqual(summary_unknown["total_deals"], 0)
+        self.assertEqual(summary_unknown["buy_deals"], 0)
+        self.assertEqual(summary_unknown["sell_deals"], 0)
+        self.assertEqual(summary_unknown["buy_value_inr"], 0.0)
+        self.assertEqual(summary_unknown["sell_value_inr"], 0.0)
+        self.assertEqual(summary_unknown["net_value_inr"], 0.0)
+        self.assertEqual(len(summary_unknown["deals"]), 0)
 
 
 if __name__ == "__main__":

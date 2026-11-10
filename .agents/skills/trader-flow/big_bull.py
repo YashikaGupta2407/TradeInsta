@@ -502,3 +502,4 @@ def generate_big_bull_watchlist(accumulated_stocks, sector_flows=None, min_score
 
     watchlist.sort(key=lambda x: (x["score"], x["net_flow_inr"]), reverse=True)
     return watchlist
+

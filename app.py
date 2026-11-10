@@ -132,9 +132,35 @@ def get_badge_info(is_sample: bool, is_open: bool, data_source: str, bar_age: st
     }
 
 
+# ---------------------------------------------------------------- Deal Loading Helper
+def load_market_deals(is_sample_mode: bool = False):
+    """Load bulk/block deals from trader/flow/ or sample fixtures if in sample mode.
+
+    Returns:
+        tuple: (deals: list, source_note: str)
+    """
+    flow_dir = os.path.join(ROOT, "trader", "flow")
+    deals = flow_mod.load_flow_deals(flow_dir=flow_dir)
+    source_note = "Local Directory (trader/flow)"
+
+    if is_sample_mode:
+        multi_csv = os.path.join(ROOT, "tests", "fixtures", "big_bull", "big_bull_multi_session.csv")
+        fixture_dir = os.path.join(ROOT, "tests", "fixtures", "trader-flow")
+        if os.path.exists(multi_csv):
+            deals = flow_mod.load_flow_deals(file_path=multi_csv)
+            source_note = "Multi-Session Sample Fixture (Offline Demo)"
+        elif os.path.exists(fixture_dir):
+            deals = flow_mod.load_flow_deals(flow_dir=fixture_dir)
+            source_note = "Sample Fixture Directory"
+
+    return deals, source_note
+
+
 # ---------------------------------------------------------------- BIG BULL Dashboard View
-def render_big_bull_view(is_sample_mode: bool):
+def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_note=None):
     """Render BIG BULL — Institutional Buying Intelligence & Sector Flow Analysis Terminal."""
+    if deals is None:
+        deals, data_source_note = load_market_deals(is_sample_mode=is_sample_mode)
     # Custom CSS for dark institutional styling
     st.markdown(
         """
@@ -212,23 +238,11 @@ def render_big_bull_view(is_sample_mode: bool):
         unsafe_allow_html=True
     )
 
-    # Load Deals
-    flow_dir = os.path.join(ROOT, "trader", "flow")
-    deals = flow_mod.load_flow_deals(flow_dir=flow_dir)
-    data_source_note = "Local Directory (trader/flow)"
-
-    if is_sample_mode or not deals:
-        multi_csv = os.path.join(ROOT, "tests", "fixtures", "trader-flow", "big_bull_multi_session.csv")
-        if os.path.exists(multi_csv):
-            deals = flow_mod.load_flow_deals(file_path=multi_csv)
-            data_source_note = "Multi-Session Sample Fixture (Offline Demo)"
-        elif not deals:
-            fixture_dir = os.path.join(ROOT, "tests", "fixtures", "trader-flow")
-            deals = flow_mod.load_flow_deals(flow_dir=fixture_dir)
-            data_source_note = "Sample Fixture Directory"
-
     if not deals:
-        st.warning("No bulk or block deal CSV files found in `trader/flow/`. Please download official NSE bulk/block deal CSVs into `trader/flow/` or enable 'Sample Data' in the sidebar.")
+        st.warning(
+            "No bulk/block deal data available. Please add the downloaded NSE CSV files into `trader/flow/` "
+            "or switch to 'Sample Data (Offline Fixture)' in the sidebar."
+        )
         return
 
     # Data Freshness & Observation Period
@@ -661,9 +675,10 @@ def main():
         help="Choose between real network market data or offline test fixtures."
     )
     is_sample_mode = (feed_mode == "Sample Data (Offline Fixture)")
+    deals, deal_source_note = load_market_deals(is_sample_mode=is_sample_mode)
 
     if nav_view == "🐂 BIG BULL — Follow the Smart Money":
-        render_big_bull_view(is_sample_mode)
+        render_big_bull_view(is_sample_mode=is_sample_mode, deals=deals, data_source_note=deal_source_note)
         return
 
     # ---------------------------------------------------------------- Single Stock Trade Setup View
@@ -1063,82 +1078,85 @@ def main():
     st.markdown("### 🌊 Flow (previous day, not live)")
     st.caption("Information only, not a trade recommendation. Reflects reported institutional and promoter bulk/block deals.")
 
-    sym_flow = flow_mod.get_symbol_flow_summary(deals, resolved_symbol)
-    vol_ratio = flow_mod.compute_volume_vs_20d_avg(resolved_symbol, daily_volumes=[b["v"] for b in bars] if bars else None)
-
-    f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns(5)
-    with f_col1:
-        st.metric(
-            label="Bulk/Block Deals",
-            value=f"{sym_flow['total_deals']}",
-            delta=f"{sym_flow['buy_deals']} Buy / {sym_flow['sell_deals']} Sell",
-            delta_color="off"
-        )
-    with f_col2:
-        st.metric(
-            label="Total Buy Flow",
-            value=flow_mod.format_inr(sym_flow["buy_value_inr"]),
-            delta=f"{sym_flow['buy_quantity']:,} shs" if sym_flow['buy_quantity'] else None,
-            delta_color="normal"
-        )
-    with f_col3:
-        st.metric(
-            label="Total Sell Flow",
-            value=flow_mod.format_inr(sym_flow["sell_value_inr"]),
-            delta=f"{sym_flow['sell_quantity']:,} shs" if sym_flow['sell_quantity'] else None,
-            delta_color="inverse"
-        )
-    with f_col4:
-        net_delta_color = "normal" if sym_flow["net_value_inr"] >= 0 else "inverse"
-        st.metric(
-            label="Net Flow",
-            value=flow_mod.format_inr(sym_flow["net_value_inr"]),
-            delta=sym_flow["net_action"],
-            delta_color=net_delta_color
-        )
-    with f_col5:
-        st.metric(
-            label="Volume vs 20d Avg",
-            value=f"{vol_ratio['ratio']:.2f}x" if vol_ratio.get("ratio") else "N/A",
-            delta=f"{vol_ratio.get('pct_diff', 0):+.1f}%" if vol_ratio.get("pct_diff") is not None else vol_ratio.get("label", ""),
-            delta_color="off"
-        )
-
-    if sym_flow["deals"]:
-        deal_rows = []
-        for d in sym_flow["deals"]:
-            pct_val = f"{d['pct_shares']:.2f}%" if d.get("pct_shares") is not None else "-"
-            deal_rows.append({
-                "Date": d["date"],
-                "Type": d["deal_type"],
-                "Action": d["action"],
-                "Quantity": f"{d['quantity']:,}",
-                "Price (₹)": f"₹{d['price']:,.2f}",
-                "Total Value": flow_mod.format_inr(d["value_inr"]),
-                "% Stake": pct_val,
-                "Client Name": d["client_name"]
-            })
-        st.dataframe(pd.DataFrame(deal_rows), use_container_width=True, hide_index=True)
+    if not deals:
+        st.info("No bulk/block deal data available. Please add the downloaded NSE CSV files into `trader/flow/` or switch to 'Sample Data (Offline Fixture)' in the sidebar.")
     else:
-        st.info(f"No bulk or block deals recorded for {resolved_symbol} in trader/flow/. (Download CSV files into trader/flow/ to analyze institutional flow).")
+        sym_flow = flow_mod.get_symbol_flow_summary(deals, resolved_symbol)
+        vol_ratio = flow_mod.compute_volume_vs_20d_avg(resolved_symbol, daily_volumes=[b["v"] for b in bars] if bars else None)
 
-    with st.expander("🏆 Top Stocks by Deal Size Across Market (from downloaded flow files)", expanded=False):
-        top_stocks = flow_mod.get_top_stocks_by_deal_size(deals, top_n=10)
-        if top_stocks:
-            top_rows = []
-            for t in top_stocks:
-                top_rows.append({
-                    "Symbol": t["symbol"],
-                    "Security Name": t["security_name"],
-                    "Deals": t["total_deals"],
-                    "Total Turnover": flow_mod.format_inr(t["total_value_inr"]),
-                    "Buy Flow": flow_mod.format_inr(t["buy_value_inr"]),
-                    "Sell Flow": flow_mod.format_inr(t["sell_value_inr"]),
-                    "Net Flow": flow_mod.format_inr(t["net_value_inr"])
+        f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns(5)
+        with f_col1:
+            st.metric(
+                label="Bulk/Block Deals",
+                value=f"{sym_flow['total_deals']}",
+                delta=f"{sym_flow['buy_deals']} Buy / {sym_flow['sell_deals']} Sell",
+                delta_color="off"
+            )
+        with f_col2:
+            st.metric(
+                label="Total Buy Flow",
+                value=flow_mod.format_inr(sym_flow["buy_value_inr"]),
+                delta=f"{sym_flow['buy_quantity']:,} shs" if sym_flow['buy_quantity'] else None,
+                delta_color="normal"
+            )
+        with f_col3:
+            st.metric(
+                label="Total Sell Flow",
+                value=flow_mod.format_inr(sym_flow["sell_value_inr"]),
+                delta=f"{sym_flow['sell_quantity']:,} shs" if sym_flow['sell_quantity'] else None,
+                delta_color="inverse"
+            )
+        with f_col4:
+            net_delta_color = "normal" if sym_flow["net_value_inr"] >= 0 else "inverse"
+            st.metric(
+                label="Net Flow",
+                value=flow_mod.format_inr(sym_flow["net_value_inr"]),
+                delta=sym_flow["net_action"],
+                delta_color=net_delta_color
+            )
+        with f_col5:
+            st.metric(
+                label="Volume vs 20d Avg",
+                value=f"{vol_ratio['ratio']:.2f}x" if vol_ratio.get("ratio") else "N/A",
+                delta=f"{vol_ratio.get('pct_diff', 0):+.1f}%" if vol_ratio.get("pct_diff") is not None else vol_ratio.get("label", ""),
+                delta_color="off"
+            )
+
+        if sym_flow["deals"]:
+            deal_rows = []
+            for d in sym_flow["deals"]:
+                pct_val = f"{d['pct_shares']:.2f}%" if d.get("pct_shares") is not None else "-"
+                deal_rows.append({
+                    "Date": d["date"],
+                    "Type": d["deal_type"],
+                    "Action": d["action"],
+                    "Quantity": f"{d['quantity']:,}",
+                    "Price (₹)": f"₹{d['price']:,.2f}",
+                    "Total Value": flow_mod.format_inr(d["value_inr"]),
+                    "% Stake": pct_val,
+                    "Client Name": d["client_name"]
                 })
-            st.dataframe(pd.DataFrame(top_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(deal_rows), use_container_width=True, hide_index=True)
         else:
-            st.write("No deal files currently loaded in `trader/flow/`. Place downloaded CSV files there to see market-wide deal rankings.")
+            st.info(f"No bulk or block deals recorded for {resolved_symbol} in current deal disclosures.")
+
+        with st.expander("🏆 Top Stocks by Deal Size Across Market (from downloaded flow files)", expanded=False):
+            top_stocks = flow_mod.get_top_stocks_by_deal_size(deals, top_n=10)
+            if top_stocks:
+                top_rows = []
+                for t in top_stocks:
+                    top_rows.append({
+                        "Symbol": t["symbol"],
+                        "Security Name": t["security_name"],
+                        "Deals": t["total_deals"],
+                        "Total Turnover": flow_mod.format_inr(t["total_value_inr"]),
+                        "Buy Flow": flow_mod.format_inr(t["buy_value_inr"]),
+                        "Sell Flow": flow_mod.format_inr(t["sell_value_inr"]),
+                        "Net Flow": flow_mod.format_inr(t["net_value_inr"])
+                    })
+                st.dataframe(pd.DataFrame(top_rows), use_container_width=True, hide_index=True)
+            else:
+                st.write("No deal files currently loaded in `trader/flow/`. Place downloaded CSV files there to see market-wide deal rankings.")
 
     # ---------------------------------------------------------------- Footer Note
     st.markdown(
