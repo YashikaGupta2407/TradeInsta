@@ -405,6 +405,110 @@ def cmd_summary(args):
     return 0
 
 
+def _load_big_bull():
+    try:
+        from . import big_bull
+        return big_bull
+    except Exception:
+        pass
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "big_bull.py")
+    if os.path.exists(p):
+        spec = importlib.util.spec_from_file_location("big_bull", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    return None
+
+
+def cmd_sectors(args):
+    deals = load_flow_deals(args.dir, args.file)
+    bb = _load_big_bull()
+    if not bb:
+        print("BIG BULL module not found.")
+        return 1
+
+    sectors = bb.compute_sector_flow(deals)
+    if args.json:
+        print(json.dumps(sectors, indent=2))
+        return 0
+
+    print("=== BIG BULL — Sector-Wise Institutional Capital Flow ===")
+    if not sectors:
+        print(f"No deal data found in {args.dir or args.file or DEFAULT_FLOW_DIR}.")
+        return 0
+
+    print(f"{'Sector':<30} {'Net Flow':<16} {'Buy Value':<16} {'Sell Value':<16} {'Deals':<7} {'Status':<18}")
+    print("-" * 105)
+    for s in sectors:
+        print(f"{s['sector']:<30} {format_inr(s['net_flow_inr']):<16} {format_inr(s['buy_value_inr']):<16} {format_inr(s['sell_value_inr']):<16} {s['total_deals']:<7} {s['status']:<18}")
+
+    print()
+    print(DISCLAIMER)
+    return 0
+
+
+def cmd_accumulated(args):
+    deals = load_flow_deals(args.dir, args.file)
+    bb = _load_big_bull()
+    if not bb:
+        print("BIG BULL module not found.")
+        return 1
+
+    stocks = bb.analyze_stock_accumulation(deals)
+    if args.sector:
+        stocks = [s for s in stocks if s["sector"].lower() == args.sector.lower()]
+
+    if args.json:
+        print(json.dumps(stocks[:args.limit], indent=2))
+        return 0
+
+    print("=== BIG BULL — Stocks Being Accumulated by Big Buyers ===")
+    if not stocks:
+        print(f"No accumulation records found in {args.dir or args.file or DEFAULT_FLOW_DIR}.")
+        return 0
+
+    print(f"{'Symbol':<12} {'Sector':<26} {'Net Flow':<16} {'Buy Value':<16} {'Buyers':<8} {'Trend':<22}")
+    print("-" * 105)
+    for s in stocks[:args.limit]:
+        print(f"{s['symbol']:<12} {s['sector']:<26} {format_inr(s['net_flow_inr']):<16} {format_inr(s['buy_value_inr']):<16} {s['distinct_buyers_count']:<8} {s['trend']:<22}")
+
+    print()
+    print(DISCLAIMER)
+    return 0
+
+
+def cmd_watchlist(args):
+    deals = load_flow_deals(args.dir, args.file)
+    bb = _load_big_bull()
+    if not bb:
+        print("BIG BULL module not found.")
+        return 1
+
+    sector_flows = bb.compute_sector_flow(deals)
+    accumulated = bb.analyze_stock_accumulation(deals)
+    watchlist = bb.generate_big_bull_watchlist(accumulated, sector_flows=sector_flows, min_score=args.min_score)
+
+    if args.json:
+        print(json.dumps(watchlist[:args.limit], indent=2))
+        return 0
+
+    print("=== BIG BULL WATCHLIST — Institutional Accumulation Candidates ===")
+    if not watchlist:
+        print("No stocks passed the watchlist scoring threshold.")
+        return 0
+
+    print(f"{'Score':<7} {'Symbol':<12} {'Sector':<26} {'Net Flow':<16} {'Key Rationales'}")
+    print("-" * 105)
+    for w in watchlist[:args.limit]:
+        reasons_str = " | ".join(w["reasons"][:3])
+        print(f"{w['score']}/100  {w['symbol']:<12} {w['sector']:<26} {format_inr(w['net_flow_inr']):<16} {reasons_str}")
+
+    print()
+    print(DISCLAIMER)
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Institutional Flow Analysis for NSE Bulk and Block Deals.")
     parser.add_argument("--dir", default=DEFAULT_FLOW_DIR, help=f"Directory with CSV files (default: {DEFAULT_FLOW_DIR})")
@@ -426,6 +530,19 @@ def main(argv=None):
     # summary
     sub.add_parser("summary", help="Show overall dataset statistics")
 
+    # sectors
+    sub.add_parser("sectors", help="Show sector-wise capital flow analysis")
+
+    # accumulated
+    p_acc = sub.add_parser("accumulated", help="Show stocks being accumulated by big buyers")
+    p_acc.add_argument("--sector", help="Filter by sector")
+    p_acc.add_argument("--limit", type=int, default=15, help="Max stocks to list (default: 15)")
+
+    # watchlist
+    p_wl = sub.add_parser("watchlist", help="Show scored BIG BULL watchlist")
+    p_wl.add_argument("--min-score", type=int, default=35, help="Minimum score threshold (default: 35)")
+    p_wl.add_argument("--limit", type=int, default=15, help="Max stocks to list (default: 15)")
+
     args = parser.parse_args(argv)
 
     if args.command == "symbol":
@@ -434,6 +551,12 @@ def main(argv=None):
         return cmd_top(args)
     elif args.command == "summary":
         return cmd_summary(args)
+    elif args.command == "sectors":
+        return cmd_sectors(args)
+    elif args.command == "accumulated":
+        return cmd_accumulated(args)
+    elif args.command == "watchlist":
+        return cmd_watchlist(args)
     else:
         parser.print_help()
         return 0
@@ -441,3 +564,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -55,3 +55,4 @@ Compatible with official NSE bulk and block deal reports:
 - `Quantity Traded` / `Quantity`
 - `Trade Price / Wght. Avg. Price` / `Price`
 - `% of Total Shares` / `Shares Outstanding`
+

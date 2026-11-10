@@ -40,7 +40,7 @@ flowchart LR
 |:---|:---|:---|
 | **[trader-scanner](.agents/skills/trader-scanner)** | `scan.py` | Chart & ORB breakout scanner for NSE stocks (`.NS`) |
 | **[trader-news](.agents/skills/trader-news)** | `news.py` | News monitor for ticker catalysts and filings |
-| **[trader-flow](.agents/skills/trader-flow)** | `flow.py` | Institutional bulk and block deal monitor for NSE stocks |
+| **[trader-flow](.agents/skills/trader-flow)** | `flow.py`, `big_bull.py` | Institutional bulk/block deals & **BIG BULL** sector flow intelligence |
 | **[trader-entry](.agents/skills/trader-entry)** | `entry.py` | Candle-by-candle opening-range breakout entry timer |
 | **[trader-exit](.agents/skills/trader-exit)** | `exit.py` | Stop-loss and target planner rounded to ₹0.05 tick size |
 | **[trader-timemachine](.agents/skills/trader-timemachine)** | `timemachine.py` | 10,000-session Monte Carlo simulation & backtester |
@@ -83,6 +83,7 @@ Skill-Trade/
 ├── trader/                      # Runtime state, configurations, and data
 │   ├── config.json              # Risk, budget, and statutory charge parameters
 │   ├── holidays.json            # NSE trading holidays (2025-2027)
+│   ├── sectors.json             # Symbol-to-sector classification registry
 │   ├── flow/                    # Downloaded NSE bulk and block deal CSV files
 │   └── broker_data.py           # Broker quote and market data adapters
 ├── tests/                       # Complete unit and regression test suite
@@ -102,7 +103,9 @@ TradeInsta includes an interactive local Streamlit dashboard wrapping the tradin
 - **Levels & Telemetry**: 15m Opening Range (High/Low), signal status, entry level, stop, and target.
 - **Budget & Charges**: Position size and breakdown of statutory charges (STT, brokerage, SEBI, GST, stamp duty) using `trader/config.json`.
 - **5-Minute Chart**: Interactive candlestick chart with plotted entry, stop, target, and opening-range levels.
-- **Institutional Flow**: Latest bulk and block deals (Buy/Sell, quantity, price, stake %) and volume vs. 20-day average.
+- **Institutional Flow & BIG BULL Intelligence**:
+  - **Single Stock Flow**: Latest bulk and block deals (Buy/Sell, quantity, price, stake %) and volume vs. 20-day average.
+  - **BIG BULL Terminal**: Market-wide institutional flow analysis, sector capital flow ranking, accumulation detection (repeated buying, multi-buyer breadth, net buy values), volume confirmation, and transparent 0–100 scored watchlist.
 
 Launch locally on `127.0.0.1`:
 ```bash
@@ -146,7 +149,7 @@ python3 -m unittest discover tests
 
 Output:
 ```text
-Ran 277 tests in 6.28s
+Ran 303 tests in 6.52s
 
 OK
 ```
