@@ -95,6 +95,41 @@ def resolve_symbol(query: str) -> str:
     return ns_key
 
 
+def get_badge_info(is_sample: bool, is_open: bool, data_source: str, bar_age: str = "", session_reason: str = "") -> dict:
+    """Determine top-of-page badge state, color, and label.
+
+    Badge labels:
+    - 'LIVE (broker)': Broker real-time intraday stream during market hours
+    - 'DELAYED (Yahoo)': Yahoo Finance ~15-minute delayed stream during market hours
+    - 'LAST SESSION (market closed)': Outside market hours or holiday (displaying last session data)
+    - 'SAMPLE DATA': Offline simulated test fixtures / demo data
+    """
+    if is_sample:
+        return {
+            "label": "SAMPLE DATA",
+            "bg": "#7c3aed",  # Purple
+            "detail": f"Offline test fixture / simulated candles • Source: {data_source.capitalize()}"
+        }
+    if not is_open:
+        reason_text = f" ({session_reason})" if session_reason else ""
+        return {
+            "label": "LAST SESSION (market closed)",
+            "bg": "#475569",  # Slate Grey
+            "detail": f"Market closed{reason_text} • Displaying last session • Source: {data_source.capitalize()} • Age: {bar_age}"
+        }
+    if data_source in ("upstox", "fyers"):
+        return {
+            "label": "LIVE (broker)",
+            "bg": "#16a34a",  # Bold Green
+            "detail": f"Broker real-time feed ({data_source.capitalize()}) • Bar age: {bar_age}"
+        }
+    return {
+        "label": "DELAYED (Yahoo)",
+        "bg": "#dc2626",  # Red
+        "detail": f"Yahoo Finance ~15m delay • Bar age: {bar_age}"
+    }
+
+
 def main():
     # ---------------------------------------------------------------- Page Config
     st.set_page_config(
@@ -102,17 +137,6 @@ def main():
         page_icon="📈",
         layout="wide",
         initial_sidebar_state="expanded"
-    )
-
-    # ---------------------------------------------------------------- Header Note
-    st.markdown(
-        """
-        <div style="background-color: #f8f9fa; border-left: 5px solid #007bff; padding: 10px 16px; border-radius: 4px; margin-bottom: 15px;">
-            <span style="font-weight: 600; color: #1a73e8;">Note:</span>
-            <span style="color: #495057;"> Paper trading, not advice. All figures, stop levels, and risk calculations are simulated.</span>
-        </div>
-        """,
-        unsafe_allow_html=True
     )
 
     # ---------------------------------------------------------------- Sidebar
@@ -130,6 +154,16 @@ def main():
     st.sidebar.markdown(f"**Selected:** `{resolved_symbol}`")
     if company_name != resolved_symbol:
         st.sidebar.caption(f"{company_name}")
+
+    st.sidebar.divider()
+    st.sidebar.header("📡 Feed Mode")
+    feed_mode = st.sidebar.radio(
+        "Data Source Mode",
+        options=["Live / Network Market Feed", "Sample Data (Offline Fixture)"],
+        index=0,
+        help="Choose between real network market data or offline test fixtures."
+    )
+    is_sample_mode = (feed_mode == "Sample Data (Offline Fixture)")
 
     st.sidebar.divider()
     st.sidebar.header("⚙️ Configuration")
@@ -163,10 +197,22 @@ def main():
 
     chart = None
     fetch_error = None
-    try:
-        chart = entry_mod.get_chart(resolved_symbol, interval="5m")
-    except Exception as e:
-        fetch_error = str(e)
+
+    if is_sample_mode:
+        sample_path = os.path.join(ROOT, "tests", "fixtures", "sample_reliance.json")
+        if not os.path.exists(sample_path):
+            sample_path = os.path.join(ROOT, "tests", "fixtures", "trader-entry", "TSLA-2026-10-19-5m.json")
+        try:
+            with open(sample_path, "r", encoding="utf-8") as fh:
+                chart = json.load(fh)
+            chart.setdefault("meta", {})["source"] = "sample"
+        except Exception as e:
+            fetch_error = f"Could not load sample fixture: {e}"
+    else:
+        try:
+            chart = entry_mod.get_chart(resolved_symbol, interval="5m")
+        except Exception as e:
+            fetch_error = str(e)
 
     # Determine data source & bar age
     bars = (chart.get("bars") if chart else []) or []
@@ -183,40 +229,45 @@ def main():
     else:
         bar_age_str = "no bars"
 
-    # ---------------------------------------------------------------- Badge Display
-    # Green for broker live, red for delayed Yahoo, grey for market closed
-    if not is_market_open:
-        badge_bg = "#6c757d"  # Grey
-        badge_status = "Market Closed"
-    elif data_source in ("upstox", "fyers"):
-        badge_bg = "#2e7d32"  # Green
-        badge_status = f"Broker Live ({data_source.capitalize()})"
-    else:
-        badge_bg = "#d32f2f"  # Red
-        badge_status = "Delayed Yahoo"
+    # ---------------------------------------------------------------- Clear Top Badge
+    badge = get_badge_info(
+        is_sample=is_sample_mode,
+        is_open=is_market_open,
+        data_source=data_source,
+        bar_age=bar_age_str,
+        session_reason=market_st.get("reason", "")
+    )
 
-    badge_html = f"""
-    <div style="display: inline-flex; align-items: center; background-color: {badge_bg}; color: white; padding: 6px 14px; border-radius: 20px; font-weight: 500; font-size: 14px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-        <span style="height: 10px; width: 10px; background-color: white; border-radius: 50%; display: inline-block; margin-right: 8px;"></span>
-        <span>{badge_status}</span>
-        <span style="margin: 0 8px; opacity: 0.7;">•</span>
-        <span>Bar Age: {bar_age_str}</span>
-        <span style="margin: 0 8px; opacity: 0.7;">•</span>
-        <span>Source: {data_source.capitalize()}</span>
-    </div>
-    """
+    st.markdown(
+        f"""
+        <div style="background-color: {badge['bg']}; color: white; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.12);">
+            <div style="display: flex; align-items: center;">
+                <span style="height: 12px; width: 12px; background-color: white; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                <span style="letter-spacing: 0.5px; font-size: 17px;">{badge['label']}</span>
+            </div>
+            <div style="font-size: 13px; font-weight: 400; opacity: 0.95;">
+                {badge['detail']}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    col_title, col_badge = st.columns([3, 2])
-    with col_title:
-        st.title(f"{resolved_symbol}")
-        if company_name and company_name != resolved_symbol:
-            st.subheader(company_name)
-    with col_badge:
-        st.markdown("<div style='text-align: right; padding-top: 10px;'>", unsafe_allow_html=True)
-        st.markdown(badge_html, unsafe_allow_html=True)
-        if not is_market_open:
-            st.caption(f"Session Reason: {market_st.get('reason', 'Closed')} | Next Open: {market_st.get('next_open', 'N/A')}")
-        st.markdown("</div>", unsafe_allow_html=True)
+    # Note: Paper trading, not advice
+    st.markdown(
+        """
+        <div style="background-color: #f8f9fa; border-left: 5px solid #007bff; padding: 10px 16px; border-radius: 4px; margin-bottom: 15px;">
+            <span style="font-weight: 600; color: #1a73e8;">Note:</span>
+            <span style="color: #495057;"> Paper trading, not advice. All figures, stop levels, and risk calculations are simulated.</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Header title
+    st.title(f"{resolved_symbol}")
+    if company_name and company_name != resolved_symbol:
+        st.subheader(company_name)
 
     # ---------------------------------------------------------------- Data Evaluation
     if fetch_error or not chart:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for app.py helper functions and integrations."""
+"""Tests for app.py helper functions, integrations, and badges."""
 
 import unittest
-from app import load_universe, resolve_symbol, SYM_TO_NAME
+from app import load_universe, resolve_symbol, get_badge_info, SYM_TO_NAME
 
 
 class TestApp(unittest.TestCase):
@@ -20,7 +20,6 @@ class TestApp(unittest.TestCase):
         self.assertEqual(resolve_symbol("tcs"), "TCS.NS")
 
     def test_resolve_symbol_from_name(self):
-        # Name resolution for known stocks
         resolved = resolve_symbol("Reliance")
         self.assertEqual(resolved, "RELIANCE.NS")
 
@@ -28,7 +27,25 @@ class TestApp(unittest.TestCase):
         resolved = resolve_symbol("INFY.NS — Infosys Limited")
         self.assertEqual(resolved, "INFY.NS")
 
+    def test_badge_sample_data(self):
+        info = get_badge_info(is_sample=True, is_open=True, data_source="sample")
+        self.assertEqual(info["label"], "SAMPLE DATA")
+
+    def test_badge_market_closed(self):
+        info = get_badge_info(is_sample=False, is_open=False, data_source="yahoo", session_reason="after the close")
+        self.assertEqual(info["label"], "LAST SESSION (market closed)")
+
+    def test_badge_live_broker(self):
+        info_upstox = get_badge_info(is_sample=False, is_open=True, data_source="upstox", bar_age="1m")
+        self.assertEqual(info_upstox["label"], "LIVE (broker)")
+
+        info_fyers = get_badge_info(is_sample=False, is_open=True, data_source="fyers", bar_age="2m")
+        self.assertEqual(info_fyers["label"], "LIVE (broker)")
+
+    def test_badge_delayed_yahoo(self):
+        info = get_badge_info(is_sample=False, is_open=True, data_source="yahoo", bar_age="16m")
+        self.assertEqual(info["label"], "DELAYED (Yahoo)")
+
 
 if __name__ == "__main__":
     unittest.main()
-
