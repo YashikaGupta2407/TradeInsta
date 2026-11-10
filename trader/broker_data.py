@@ -342,11 +342,18 @@ def fetch_fyers_quotes(syms, timeout=DEFAULT_TIMEOUT):
             prev = float(v.get("prev_close_price") or lp)
             tt = v.get("tt")
             t_str = datetime.datetime.fromtimestamp(tt, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if tt else now_iso
+            vol = int(v.get("volume") or 0)
+            chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
             out[orig_sym] = {
                 "symbol": orig_sym,
                 "price": lp,
                 "prev_close": prev,
                 "open": float(v.get("open_price") or lp),
+                "high": float(v.get("high_price") or lp),
+                "low": float(v.get("low_price") or lp),
+                "volume": vol,
+                "change_pct": chg_pct,
+                "net_change": round(lp - prev, 2),
                 "time": t_str,
                 "source": "fyers",
                 "timestamp": tt
@@ -544,11 +551,18 @@ def fetch_upstox_quotes(syms, timeout=DEFAULT_TIMEOUT):
             ohlc = v.get("ohlc") or {}
             prev = float(ohlc.get("close") or lp)
             ts_str = v.get("last_trade_time") or ""
+            vol = int(v.get("volume") or 0)
+            chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
             out[orig_sym] = {
                 "symbol": orig_sym,
                 "price": lp,
                 "prev_close": prev,
                 "open": float(ohlc.get("open") or lp),
+                "high": float(ohlc.get("high") or lp),
+                "low": float(ohlc.get("low") or lp),
+                "volume": vol,
+                "change_pct": chg_pct,
+                "net_change": round(lp - prev, 2),
                 "time": ts_str,
                 "source": "upstox"
             }
@@ -601,3 +615,129 @@ def candles_to_series(chart):
         "v": [b["v"] for b in bars],
         "meta": chart.get("meta", {})
     }
+
+
+def _generate_sample_quotes(symbols):
+    """Generate deterministic, realistic sample market quotes for offline testing."""
+    now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sample_base = {
+        "RELIANCE": (1265.50, 1250.00, 8450000),
+        "TCS": (4180.00, 4120.00, 2100000),
+        "HDFCBANK": (1735.00, 1720.00, 9200000),
+        "INFY": (1875.00, 1850.00, 4300000),
+        "SBIN": (840.50, 832.00, 11500000),
+        "BHARTIARTL": (1610.00, 1595.00, 3800000),
+        "ITC": (475.00, 478.50, 6200000),
+        "TATAMOTORS": (892.00, 880.25, 5900000),
+        "SUNPHARMA": (1780.00, 1795.00, 1800000),
+        "TITAN": (3350.00, 3310.00, 1400000),
+        "LT": (3620.00, 3590.00, 1950000),
+        "MARUTI": (12400.00, 12250.00, 750000),
+        "DLF": (865.00, 852.00, 3100000),
+        "TATASTEEL": (152.00, 154.50, 14000000),
+        "CIPLA": (1540.00, 1555.00, 1600000),
+        "NTPC": (392.00, 388.00, 7800000),
+    }
+    out = {}
+    for s in symbols:
+        sym_clean = s.replace(".NS", "").upper()
+        if sym_clean in sample_base:
+            lp, prev, vol = sample_base[sym_clean]
+        else:
+            h = sum(ord(c) for c in sym_clean)
+            base_p = 500.0 + (h % 2000)
+            chg = ((h % 11) - 5) * 0.65
+            prev = round(base_p, 2)
+            lp = round(prev * (1.0 + chg / 100.0), 2)
+            vol = 1000000 + (h % 50) * 100000
+
+        chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
+        out[sym_clean] = {
+            "symbol": sym_clean,
+            "price": lp,
+            "prev_close": prev,
+            "open": round(prev * 1.002, 2),
+            "high": round(max(lp, prev) * 1.008, 2),
+            "low": round(min(lp, prev) * 0.994, 2),
+            "volume": vol,
+            "change_pct": chg_pct,
+            "net_change": round(lp - prev, 2),
+            "time": now_iso,
+            "source": "sample"
+        }
+    return out
+
+
+def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEFAULT_TIMEOUT):
+    """Fetch live or sample quotes for a batch of symbols with clear provenance.
+
+    Checks: Upstox -> Fyers -> Yahoo Finance -> Sample fallback.
+    Returns: dict of {sym: quote_dict}
+    """
+    if symbols is None:
+        mc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_caps.json")
+        if os.path.exists(mc_path):
+            try:
+                with open(mc_path, "r", encoding="utf-8") as fh:
+                    d = json.load(fh)
+                    symbols = list(d.get("stocks", {}).keys())
+            except Exception:
+                symbols = list(COMMON_UPSTOX_INSTRUMENTS.keys())
+        else:
+            symbols = list(COMMON_UPSTOX_INSTRUMENTS.keys())
+
+    if is_sample_mode:
+        return _generate_sample_quotes(symbols)
+
+    broker = active_broker()
+    quotes = {}
+    if broker:
+        chunk_size = 100  # Strictly within Upstox batch limit
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i:i + chunk_size]
+            b_quotes = get_realtime_quotes(chunk, timeout=timeout)
+            if b_quotes:
+                quotes.update(b_quotes)
+
+    # For symbols missing or if broker not available, query Yahoo fallback
+    missing = [s for s in symbols if s not in quotes]
+    if missing:
+        try:
+            from .agents.skills.trader_alerts import alerts
+        except Exception:
+            try:
+                import importlib.util
+                p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "trader-alerts", "alerts.py"))
+                spec = importlib.util.spec_from_file_location("trader_alerts_mod", p)
+                alerts_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(alerts_mod)
+                alerts = alerts_mod
+            except Exception:
+                alerts = None
+
+        if alerts:
+            y_quotes, _ = alerts.get_quotes(missing[:60], source="yahoo", pause=0.05)
+            for s, yq in y_quotes.items():
+                s_clean = s.replace(".NS", "").upper()
+                lp = float(yq.get("price") or 0.0)
+                prev = float(yq.get("prev_close") or lp)
+                chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
+                quotes[s_clean] = {
+                    "symbol": s_clean,
+                    "price": lp,
+                    "prev_close": prev,
+                    "open": yq.get("open"),
+                    "high": yq.get("high"),
+                    "low": yq.get("low"),
+                    "volume": 0,
+                    "change_pct": chg_pct,
+                    "net_change": round(lp - prev, 2),
+                    "time": yq.get("time") or "",
+                    "source": "yahoo"
+                }
+
+    if not quotes:
+        quotes = _generate_sample_quotes(symbols)
+
+    return quotes
+

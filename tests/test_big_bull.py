@@ -129,6 +129,53 @@ class TestBigBull(unittest.TestCase):
         top = watchlist[0]
         self.assertGreater(len(top["reasons"]), 0)
 
+    def test_market_caps_and_breadth(self):
+        mc = big_bull.load_market_caps()
+        self.assertIn("RELIANCE", mc["stocks"])
+        self.assertIn("TCS", mc["stocks"])
+
+        mock_quotes = {
+            "RELIANCE": {"symbol": "RELIANCE", "price": 1260.0, "change_pct": 1.5, "source": "upstox"},
+            "TCS": {"symbol": "TCS", "price": 4150.0, "change_pct": -0.8, "source": "upstox"},
+            "INFY": {"symbol": "INFY", "price": 1860.0, "change_pct": 0.0, "source": "upstox"},
+        }
+        breadth = big_bull.compute_market_breadth(mock_quotes)
+        self.assertEqual(breadth["advances"], 1)
+        self.assertEqual(breadth["declines"], 1)
+        self.assertEqual(breadth["unchanged"], 1)
+        self.assertEqual(breadth["total"], 3)
+        self.assertEqual(breadth["source"], "upstox")
+
+    def test_sector_performance_and_heatmap(self):
+        mock_quotes = {
+            "RELIANCE": {"symbol": "RELIANCE", "price": 1260.0, "change_pct": 2.0, "volume": 5000000, "source": "upstox"},
+            "TCS": {"symbol": "TCS", "price": 4150.0, "change_pct": -1.0, "volume": 1200000, "source": "upstox"},
+            "HDFCBANK": {"symbol": "HDFCBANK", "price": 1730.0, "change_pct": 0.8, "volume": 3400000, "source": "upstox"},
+        }
+        sec_perf = big_bull.compute_sector_performance(mock_quotes)
+        self.assertGreater(len(sec_perf), 0)
+        # Energy & Power should be top with +2.0%
+        self.assertEqual(sec_perf[0]["sector"], "Energy & Power")
+        self.assertEqual(sec_perf[0]["weighted_change_pct"], 2.0)
+
+        heatmap = big_bull.build_heatmap_records(mock_quotes)
+        self.assertEqual(len(heatmap), 3)
+        rel_rec = next(r for r in heatmap if r["symbol"] == "RELIANCE")
+        self.assertEqual(rel_rec["sector"], "Energy & Power")
+        self.assertEqual(rel_rec["price"], 1260.0)
+
+    def test_big_bull_radar(self):
+        mock_quotes = {
+            "RELIANCE": {"symbol": "RELIANCE", "price": 1260.0, "change_pct": 1.2, "volume": 5000000, "source": "upstox"},
+            "HDFCBANK": {"symbol": "HDFCBANK", "price": 1730.0, "change_pct": 0.5, "volume": 3000000, "source": "upstox"},
+        }
+        radar = big_bull.generate_big_bull_radar(self.deals, mock_quotes)
+        self.assertGreater(len(radar), 0)
+        top = radar[0]
+        self.assertIn("symbol", top)
+        self.assertIn("reasons", top)
+        self.assertGreater(len(top["reasons"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

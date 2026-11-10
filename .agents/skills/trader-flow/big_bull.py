@@ -503,3 +503,278 @@ def generate_big_bull_watchlist(accumulated_stocks, sector_flows=None, min_score
     watchlist.sort(key=lambda x: (x["score"], x["net_flow_inr"]), reverse=True)
     return watchlist
 
+
+# ---------------------------------------------------------------- Market Discovery & Upstox Integration
+
+def load_market_caps(market_caps_path=None):
+    """Load market capitalization references from trader/market_caps.json."""
+    if market_caps_path is None:
+        market_caps_path = os.path.join(ROOT, "trader", "market_caps.json")
+    if os.path.exists(market_caps_path):
+        try:
+            with open(market_caps_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            pass
+    return {"stocks": {}}
+
+
+def compute_market_breadth(quotes):
+    """Calculate market breadth metrics: advances, declines, advance/decline ratio."""
+    if not quotes:
+        return {
+            "advances": 0,
+            "declines": 0,
+            "unchanged": 0,
+            "total": 0,
+            "advance_ratio": 0.5,
+            "top_gainers": [],
+            "top_losers": [],
+            "source": "N/A"
+        }
+
+    advances = 0
+    declines = 0
+    unchanged = 0
+    valid_quotes = []
+    sources = set()
+
+    for sym, q in quotes.items():
+        if not isinstance(q, dict):
+            continue
+        valid_quotes.append(q)
+        chg = q.get("change_pct", 0.0)
+        if q.get("source"):
+            sources.add(q["source"])
+        if chg > 0.05:
+            advances += 1
+        elif chg < -0.05:
+            declines += 1
+        else:
+            unchanged += 1
+
+    total = len(valid_quotes)
+    valid_quotes.sort(key=lambda x: x.get("change_pct", 0.0), reverse=True)
+    top_gainers = valid_quotes[:5]
+    top_losers = valid_quotes[-5:][::-1] if len(valid_quotes) >= 5 else valid_quotes[::-1]
+
+    denom = max(1, advances + declines)
+    adv_ratio = round(advances / denom, 2)
+    primary_source = "upstox" if "upstox" in sources else ("yahoo" if "yahoo" in sources else "sample")
+
+    return {
+        "advances": advances,
+        "declines": declines,
+        "unchanged": unchanged,
+        "total": total,
+        "advance_ratio": adv_ratio,
+        "top_gainers": top_gainers,
+        "top_losers": top_losers,
+        "source": primary_source
+    }
+
+
+def compute_sector_performance(quotes, sector_registry=None, market_caps=None):
+    """Aggregate live stock performance into sector-level metrics ranked by weighted change."""
+    if sector_registry is None:
+        sector_registry = load_sector_registry()
+    if market_caps is None:
+        market_caps = load_market_caps()
+
+    caps_dict = market_caps.get("stocks", {})
+    by_sector = {}
+
+    for sec in sector_registry.get("sectors", []):
+        by_sector[sec] = {
+            "sector": sec,
+            "stocks": [],
+            "advances": 0,
+            "declines": 0,
+            "total_cap_cr": 0.0,
+            "weighted_sum": 0.0,
+            "simple_sum": 0.0,
+            "total_volume": 0
+        }
+
+    for sym, q in quotes.items():
+        if not isinstance(q, dict):
+            continue
+        clean_sym = sym.replace(".NS", "").upper()
+        cap_info = caps_dict.get(clean_sym, {})
+        sec = cap_info.get("sector") or get_stock_sector(clean_sym, cap_info.get("name", ""), sector_registry)
+        if sec not in by_sector:
+            by_sector[sec] = {
+                "sector": sec,
+                "stocks": [],
+                "advances": 0,
+                "declines": 0,
+                "total_cap_cr": 0.0,
+                "weighted_sum": 0.0,
+                "simple_sum": 0.0,
+                "total_volume": 0
+            }
+
+        mcap = cap_info.get("market_cap_cr", 25000.0)
+        chg = q.get("change_pct", 0.0)
+        vol = q.get("volume", 0)
+
+        by_sector[sec]["stocks"].append({
+            "symbol": clean_sym,
+            "name": cap_info.get("name", clean_sym),
+            "price": q.get("price", 0.0),
+            "prev_close": q.get("prev_close", 0.0),
+            "change_pct": chg,
+            "net_change": q.get("net_change", 0.0),
+            "volume": vol,
+            "market_cap_cr": mcap,
+            "source": q.get("source", "broker")
+        })
+
+        if chg > 0.05:
+            by_sector[sec]["advances"] += 1
+        elif chg < -0.05:
+            by_sector[sec]["declines"] += 1
+
+        by_sector[sec]["total_cap_cr"] += mcap
+        by_sector[sec]["weighted_sum"] += chg * mcap
+        by_sector[sec]["simple_sum"] += chg
+        by_sector[sec]["total_volume"] += vol
+
+    results = []
+    for sec, data in by_sector.items():
+        st_count = len(data["stocks"])
+        if st_count == 0:
+            continue
+        tot_cap = max(1.0, data["total_cap_cr"])
+        weighted_chg = round(data["weighted_sum"] / tot_cap, 2)
+        avg_chg = round(data["simple_sum"] / st_count, 2)
+
+        data["stocks"].sort(key=lambda x: x["change_pct"], reverse=True)
+        top_stock = data["stocks"][0] if data["stocks"] else None
+        worst_stock = data["stocks"][-1] if data["stocks"] else None
+
+        trend = "Bullish (+)" if weighted_chg > 0.3 else ("Bearish (-)" if weighted_chg < -0.3 else "Neutral (—)")
+
+        results.append({
+            "sector": sec,
+            "stocks_count": st_count,
+            "advances": data["advances"],
+            "declines": data["declines"],
+            "weighted_change_pct": weighted_chg,
+            "avg_change_pct": avg_chg,
+            "top_stock": top_stock,
+            "worst_stock": worst_stock,
+            "total_volume": data["total_volume"],
+            "total_market_cap_cr": round(data["total_cap_cr"], 2),
+            "trend": trend,
+            "stocks": data["stocks"]
+        })
+
+    results.sort(key=lambda x: x["weighted_change_pct"], reverse=True)
+    return results
+
+
+def build_heatmap_records(quotes, sector_registry=None, market_caps=None):
+    """Format stocks and sectors into rectangular hierarchical tiles for Plotly Treemap."""
+    if sector_registry is None:
+        sector_registry = load_sector_registry()
+    if market_caps is None:
+        market_caps = load_market_caps()
+
+    caps_dict = market_caps.get("stocks", {})
+    records = []
+
+    for sym, q in quotes.items():
+        clean_sym = sym.replace(".NS", "").upper()
+        cap_info = caps_dict.get(clean_sym, {})
+        sec = cap_info.get("sector") or get_stock_sector(clean_sym, cap_info.get("name", ""), sector_registry)
+        name = cap_info.get("name", clean_sym)
+        mcap = cap_info.get("market_cap_cr", 25000.0)
+        chg = q.get("change_pct", 0.0)
+        lp = q.get("price", 0.0)
+
+        # Truncate color scale between -4% and +4% for consistent heatmap visuals
+        clipped_color = max(-4.0, min(4.0, chg))
+
+        records.append({
+            "sector": sec,
+            "symbol": clean_sym,
+            "name": name,
+            "price": lp,
+            "change_pct": chg,
+            "market_cap_cr": mcap,
+            "volume": q.get("volume", 0),
+            "color_val": clipped_color,
+            "hover_text": f"<b>{clean_sym} ({name})</b><br>Sector: {sec}<br>Price: ₹{lp:,.2f}<br>Change: {chg:+.2f}%<br>Market Cap: ₹{mcap:,.0f} Cr"
+        })
+
+    return records
+
+
+def generate_big_bull_radar(deals, quotes=None, sector_registry=None):
+    """Combine disclosed smart-money deals with live Upstox price and volume action."""
+    if sector_registry is None:
+        sector_registry = load_sector_registry()
+
+    accumulated = analyze_stock_accumulation(deals, sector_registry)
+    quotes = quotes or {}
+    radar_alerts = []
+
+    for stock in accumulated:
+        sym = stock["symbol"]
+        q = quotes.get(sym, {})
+        lp = q.get("price")
+        chg = q.get("change_pct")
+        vol = q.get("volume", 0)
+        source = q.get("source", "broker")
+
+        # Explainable alert generation
+        reasons = []
+        is_high_conviction = False
+
+        if stock.get("has_multiple_buyers"):
+            reasons.append(f"Multiple Disclosed Buyers ({stock.get('distinct_buyers_count', 2)} institutional clients)")
+            is_high_conviction = True
+
+        if stock.get("has_repeated_buying"):
+            reasons.append("Repeated Accumulation across reporting dates")
+            is_high_conviction = True
+
+        if stock.get("is_strong_net_buying") or stock.get("net_flow_inr", 0) > 500000000:
+            reasons.append(f"High Disclosed Net Buying (₹{stock['net_flow_inr'] / 10000000:.2f} Cr)")
+            is_high_conviction = True
+
+        # Upstox Live Price & Volume Confirmation
+        if chg is not None:
+            if chg > 0.5:
+                reasons.append(f"Live Price Up {chg:+.2f}% ({source.upper()})")
+            elif chg < -0.5:
+                reasons.append(f"Live Price Down {chg:+.2f}% ({source.upper()})")
+
+        if vol and vol > 1000000:
+            reasons.append(f"Heavy Trading Activity ({vol:,} shares traded today)")
+
+        radar_alerts.append({
+            "symbol": sym,
+            "security_name": stock["security_name"],
+            "sector": stock["sector"],
+            "pattern": stock["patterns"][0] if stock["patterns"] else "DISCLOSED DEALS",
+            "net_flow_inr": stock["net_flow_inr"],
+            "buy_value_inr": stock["buy_value_inr"],
+            "sell_value_inr": stock["sell_value_inr"],
+            "buyers_count": stock.get("distinct_buyers_count", 0),
+            "latest_deal_date": stock["latest_deal_date"],
+            "live_price": lp,
+            "live_change_pct": chg,
+            "live_volume": vol,
+            "source": source,
+            "is_high_conviction": is_high_conviction,
+            "reasons": reasons,
+            "deals": stock["deal_records"]
+        })
+
+    # Sort: high conviction first, then largest net disclosed buying
+    radar_alerts.sort(key=lambda x: (x["is_high_conviction"], x["net_flow_inr"]), reverse=True)
+    return radar_alerts
+
+

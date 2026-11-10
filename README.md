@@ -84,8 +84,10 @@ Skill-Trade/
 │   ├── config.json              # Risk, budget, and statutory charge parameters
 │   ├── holidays.json            # NSE trading holidays (2025-2027)
 │   ├── sectors.json             # Symbol-to-sector classification registry
+│   ├── market_caps.json         # Market cap references for Heatmap Treemap
 │   ├── flow/                    # Downloaded NSE bulk and block deal CSV files
-│   └── broker_data.py           # Broker quote and market data adapters
+│   ├── broker_data.py           # Broker quote and market data adapters
+│   └── upstox_websocket.py      # Upstox V3 Market Data Feed adapter
 ├── tests/                       # Complete unit and regression test suite
 │   ├── fixtures/                # Offline market data, flow, and filing fixtures
 │   └── test_*.py                # Unit test suite covering all modules
@@ -105,7 +107,10 @@ TradeInsta includes an interactive local Streamlit dashboard wrapping the tradin
 - **5-Minute Chart**: Interactive candlestick chart with plotted entry, stop, target, and opening-range levels.
 - **Institutional Flow & BIG BULL Intelligence**:
   - **Single Stock Flow**: Latest bulk and block deals (Buy/Sell, quantity, price, stake %) and volume vs. 20-day average.
-  - **BIG BULL Terminal**: Market-wide institutional flow analysis, sector capital flow ranking, accumulation detection (repeated buying, multi-buyer breadth, net buy values), volume confirmation, and transparent 0–100 scored watchlist.
+  - **BIG BULL Market Discovery**:
+    - **A. Market Overview**: Upstox live breadth (advances/declines), visual ratio gauge, top 5 gainers/losers, and sector performance ranking.
+    - **B. Market Heatmap**: Rectangular stock tiles grouped by Sector, sized by market cap, colored green/red on live Upstox price moves with click-to-zoom and stock inspector.
+    - **C. Big Bull Radar**: Surfaces institutional smart money accumulation (repeated buying, multi-buyer breadth) merged with Upstox live price and volume confirmation.
 
 Launch locally on `127.0.0.1`:
 ```bash
@@ -149,7 +154,7 @@ python3 -m unittest discover tests
 
 Output:
 ```text
-Ran 303 tests in 6.52s
+Ran 309 tests in 6.52s
 
 OK
 ```

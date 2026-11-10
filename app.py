@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -161,6 +162,36 @@ def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_n
     """Render BIG BULL — Institutional Buying Intelligence & Sector Flow Analysis Terminal."""
     if deals is None:
         deals, data_source_note = load_market_deals(is_sample_mode=is_sample_mode)
+
+    # Load Sector Registry & Market Caps
+    sector_registry = big_bull.load_sector_registry()
+    market_caps = big_bull.load_market_caps()
+    tracked_symbols = list(market_caps.get("stocks", {}).keys())
+
+    # Fetch Upstox Live / Fallback Quotes
+    quotes = broker_data.fetch_market_overview_quotes(tracked_symbols, is_sample_mode=is_sample_mode)
+    breadth = big_bull.compute_market_breadth(quotes)
+    sec_perf = big_bull.compute_sector_performance(quotes, sector_registry, market_caps)
+
+    # Data Source Provenance Badge
+    active_b = broker_data.active_broker()
+    if is_sample_mode:
+        feed_badge = "🟣 SAMPLE DATA (Offline Fixture)"
+        feed_color = "#a855f7"
+        feed_desc = "Offline sample market quotes and test deals."
+    elif breadth.get("source") == "upstox" or active_b == "upstox":
+        feed_badge = "🟢 UPSTOX LIVE (Broker Feed V2/V3)"
+        feed_color = "#10b981"
+        feed_desc = "Live market quotes & ticks via authorized Upstox API."
+    elif breadth.get("source") == "fyers" or active_b == "fyers":
+        feed_badge = "🟢 FYERS LIVE (Broker Feed)"
+        feed_color = "#10b981"
+        feed_desc = "Live market quotes via authorized Fyers API."
+    else:
+        feed_badge = "🔴 YAHOO FINANCE (Delayed Reference Feed)"
+        feed_color = "#ef4444"
+        feed_desc = "Delayed market data (~15m lag) fallback."
+
     # Custom CSS for dark institutional styling
     st.markdown(
         """
@@ -169,26 +200,26 @@ def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_n
             background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);
             border: 1px solid #334155;
             border-radius: 8px;
-            padding: 20px 24px;
-            margin-bottom: 20px;
+            padding: 18px 22px;
+            margin-bottom: 16px;
         }
         .bb-title {
             color: #f8fafc;
-            font-size: 26px;
+            font-size: 24px;
             font-weight: 700;
             letter-spacing: -0.5px;
             margin: 0 0 6px 0;
         }
         .bb-subtitle {
             color: #94a3b8;
-            font-size: 14px;
-            margin: 0 0 14px 0;
+            font-size: 13px;
+            margin: 0 0 12px 0;
         }
         .bb-pill-container {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 8px;
+            margin-top: 8px;
         }
         .bb-pill {
             background-color: #1e293b;
@@ -198,454 +229,457 @@ def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_n
             border-radius: 16px;
             font-size: 12px;
             font-weight: 600;
-            letter-spacing: 0.3px;
         }
-        .bb-metric-card {
+        .bb-card {
             background-color: #0f172a;
             border: 1px solid #1e293b;
             border-radius: 8px;
             padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+        .bb-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # 1. Header & Three Primary Questions
+    # 1. Header & Primary Questions
     st.markdown(
-        """
+        f"""
         <div class="bb-header">
-            <div class="bb-title">🐂 BIG BULL — Follow the Smart Money</div>
-            <div class="bb-subtitle">Institutional Buying Intelligence, Sector Capital Flow & Smart Money Accumulation</div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <div class="bb-title">🐂 BIG BULL — Follow the Smart Money</div>
+                    <div class="bb-subtitle">Upstox Live Market Intelligence • Sector Capital Flow • Institutional Smart Money Radar</div>
+                </div>
+                <div style="background-color: #020617; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; font-size: 12px;">
+                    <span style="color: {feed_color}; font-weight: 700;">{feed_badge}</span><br>
+                    <span style="color: #64748b; font-size: 11px;">{feed_desc}</span>
+                </div>
+            </div>
             <div class="bb-pill-container">
-                <span class="bb-pill">📍 WHERE IS THE MONEY GOING?</span>
-                <span class="bb-pill">📈 WHICH STOCKS ARE BIG BUYERS ACCUMULATING?</span>
-                <span class="bb-pill">🏭 WHICH SECTORS ARE ATTRACTING BUYING?</span>
+                <span class="bb-pill">🌐 MARKET OVERVIEW</span>
+                <span class="bb-pill">🗺️ SECTOR HEATMAP</span>
+                <span class="bb-pill">📡 BIG BULL RADAR</span>
+                <span class="bb-pill">🔒 TOKEN PROTECTED</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # Note: Information only
+    # Compliance Notice
     st.markdown(
         """
-        <div style="background-color: #1e293b; border-left: 4px solid #38bdf8; padding: 10px 16px; border-radius: 4px; margin-bottom: 20px;">
-            <span style="font-weight: 600; color: #38bdf8;">Notice:</span>
-            <span style="color: #cbd5e1; font-size: 13px;"> Information and quantitative research only, not an investment recommendation. Analyzes disclosed NSE bulk and block deal filings (retrospective reported transactions, not live open-market order books).</span>
+        <div style="background-color: #1e293b; border-left: 4px solid #38bdf8; padding: 8px 14px; border-radius: 4px; margin-bottom: 16px;">
+            <span style="font-weight: 600; color: #38bdf8; font-size: 12px;">Notice:</span>
+            <span style="color: #cbd5e1; font-size: 12px;"> Information and quantitative research only, not investment advice. Live prices powered by Upstox/broker API; Disclosed deals reflect official NSE regulatory filings (retrospective reported transactions, not live open-market order books).</span>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    if not deals:
-        st.warning(
-            "No bulk/block deal data available. Please add the downloaded NSE CSV files into `trader/flow/` "
-            "or switch to 'Sample Data (Offline Fixture)' in the sidebar."
-        )
-        return
+    # 2. Main Experience Tabs
+    tab_overview, tab_heatmap, tab_radar = st.tabs([
+        "🌐 A. Market Overview",
+        "🗺️ B. Market Heatmap",
+        "📡 C. Big Bull Radar"
+    ])
 
-    # Data Freshness & Observation Period
-    kpis_raw = big_bull.compute_market_flow_kpis(deals)
-    d_range = kpis_raw["date_range"]
-    date_str = f"{d_range['earliest']} to {d_range['latest']}" if d_range["earliest"] else "Single Session"
+    # =========================================================================
+    # TAB A: MARKET OVERVIEW
+    # =========================================================================
+    with tab_overview:
+        st.markdown("### 📊 Live Market Breadth & Sector Performance")
+        st.caption("Live stock price movement and sector-wise advances/declines across leading NSE equities.")
 
-    st.markdown(
-        f"""
-        <div style="display: flex; justify-content: space-between; align-items: center; background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 6px; padding: 8px 16px; margin-bottom: 20px; font-size: 13px; color: #94a3b8;">
-            <div>📅 <b>Observation Period:</b> {date_str}</div>
-            <div>📁 <b>Feed Source:</b> {data_source_note} ({len(deals)} Disclosed Deals)</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        # Breadth Telemetry Metrics
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+        with m_col1:
+            st.metric(
+                label="Tracked Universe",
+                value=f"{breadth['total']} Stocks",
+                delta=f"{len(sec_perf)} Sectors",
+                delta_color="off"
+            )
+        with m_col2:
+            st.metric(
+                label="Advancing Stocks",
+                value=f"{breadth['advances']}",
+                delta=f"{round(breadth['advances'] / max(1, breadth['total']) * 100, 1)}% of market",
+                delta_color="normal"
+            )
+        with m_col3:
+            st.metric(
+                label="Declining Stocks",
+                value=f"{breadth['declines']}",
+                delta=f"-{round(breadth['declines'] / max(1, breadth['total']) * 100, 1)}% of market",
+                delta_color="inverse"
+            )
+        with m_col4:
+            st.metric(
+                label="Advance / Decline Ratio",
+                value=f"{breadth['advance_ratio']:.2f}",
+                delta=f"{breadth['unchanged']} Unchanged",
+                delta_color="off"
+            )
 
-    # 2. Filters Bar
-    sector_registry = big_bull.load_sector_registry()
-    available_sectors = ["All Sectors"] + sector_registry.get("sectors", [])
-
-    flt_col1, flt_col2, flt_col3 = st.columns([2, 1, 1])
-    with flt_col1:
-        selected_sector = st.selectbox("Filter by Sector", options=available_sectors, index=0)
-    with flt_col2:
-        selected_deal_type = st.selectbox("Deal Type", options=["All Types", "BULK Only", "BLOCK Only"], index=0)
-    with flt_col3:
-        selected_activity = st.selectbox("Activity", options=["All Activity", "Net Buying Only", "Net Selling Only"], index=0)
-
-    # Apply Filters to deals
-    filtered_deals = deals
-    if selected_deal_type == "BULK Only":
-        filtered_deals = [d for d in filtered_deals if d["deal_type"] == "BULK"]
-    elif selected_deal_type == "BLOCK Only":
-        filtered_deals = [d for d in filtered_deals if d["deal_type"] == "BLOCK"]
-
-    if selected_sector != "All Sectors":
-        filtered_deals = [
-            d for d in filtered_deals
-            if big_bull.get_stock_sector(d["symbol"], d.get("security_name", ""), sector_registry) == selected_sector
-        ]
-
-    # Compute Core Analytics on filtered deals
-    kpis = big_bull.compute_market_flow_kpis(filtered_deals)
-    sector_flows = big_bull.compute_sector_flow(filtered_deals, sector_registry)
-    accumulated_stocks = big_bull.analyze_stock_accumulation(filtered_deals, sector_registry)
-
-    # Apply activity filter
-    if selected_activity == "Net Buying Only":
-        accumulated_stocks = [s for s in accumulated_stocks if s["net_flow_inr"] > 0]
-    elif selected_activity == "Net Selling Only":
-        accumulated_stocks = [s for s in accumulated_stocks if s["net_flow_inr"] < 0]
-
-    # 3. Market-Wide Institutional Flow KPIs
-    st.markdown("#### 1. Market-Wide Institutional Flow Overview")
-    kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5, kpi_col6 = st.columns(6)
-
-    with kpi_col1:
-        st.metric(
-            label="Disclosed Buying",
-            value=flow_mod.format_inr(kpis["total_buy_value_inr"]),
-            delta=f"{kpis['total_buy_deals']} buy deals",
-            delta_color="normal"
-        )
-    with kpi_col2:
-        st.metric(
-            label="Disclosed Selling",
-            value=flow_mod.format_inr(kpis["total_sell_value_inr"]),
-            delta=f"{kpis['total_sell_deals']} sell deals",
-            delta_color="inverse"
-        )
-    with kpi_col3:
-        net_delta = "Net Buy" if kpis["net_flow_inr"] >= 0 else "Net Sell"
-        st.metric(
-            label="Net Institutional Flow",
-            value=flow_mod.format_inr(kpis["net_flow_inr"]),
-            delta=net_delta,
-            delta_color="normal" if kpis["net_flow_inr"] >= 0 else "inverse"
-        )
-    with kpi_col4:
-        st.metric(
-            label="Total Deals Recorded",
-            value=f"{kpis['total_deals']}",
-            delta=f"{kpis['total_stocks_count']} unique stocks",
-            delta_color="off"
-        )
-    with kpi_col5:
-        st.metric(
-            label="Net Accumulation",
-            value=f"{kpis['net_positive_stocks_count']} Stocks",
-            delta="Net positive buyers",
-            delta_color="normal"
-        )
-    with kpi_col6:
-        st.metric(
-            label="Net Distribution",
-            value=f"{kpis['net_negative_stocks_count']} Stocks",
-            delta="Net negative sellers",
-            delta_color="inverse"
+        # Visual Advance/Decline Progress Bar
+        total_movers = max(1, breadth['advances'] + breadth['declines'])
+        adv_pct = int(round((breadth['advances'] / total_movers) * 100))
+        dec_pct = 100 - adv_pct
+        st.markdown(
+            f"""
+            <div style="margin: 12px 0 24px 0;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; font-weight: 600;">
+                    <span style="color: #10b981;">Advancing: {breadth['advances']} ({adv_pct}%)</span>
+                    <span style="color: #ef4444;">Declining: {breadth['declines']} ({dec_pct}%)</span>
+                </div>
+                <div style="display: flex; height: 10px; border-radius: 5px; overflow: hidden; background-color: #334155;">
+                    <div style="width: {adv_pct}%; background-color: #10b981;"></div>
+                    <div style="width: {dec_pct}%; background-color: #ef4444;"></div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    st.divider()
-
-    # 4. Sector-Wise Money Flow — Most Important Feature
-    st.markdown("#### 2. Sector-Wise Capital Flow (Where is the Money Going?)")
-    st.caption("Aggregated disclosed institutional buying vs selling ranked by net capital flow.")
-
-    if sector_flows:
-        # Plotly Horizontal Bar Chart of Sector Net Flows
-        sec_names = [s["sector"] for s in sector_flows]
-        sec_net_crs = [s["net_flow_inr"] / 10000000.0 for s in sector_flows]
-        bar_colors = ["#10b981" if v >= 0 else "#ef4444" for v in sec_net_crs]
-
-        fig_sec = go.Figure()
-        fig_sec.add_trace(go.Bar(
-            y=sec_names,
-            x=sec_net_crs,
-            orientation='h',
-            marker=dict(color=bar_colors, line=dict(width=1, color="#1e293b")),
-            text=[f"{v:+,.1f} Cr" for v in sec_net_crs],
-            textposition="outside",
-            hoverinfo="text",
-            hovertext=[
-                f"<b>{s['sector']}</b><br>Net Flow: {flow_mod.format_inr(s['net_flow_inr'])}<br>"
-                f"Total Buying: {flow_mod.format_inr(s['buy_value_inr'])} ({s['stocks_with_buying']} stocks)<br>"
-                f"Total Selling: {flow_mod.format_inr(s['sell_value_inr'])} ({s['stocks_with_selling']} stocks)<br>"
-                f"Status: {s['status']}"
-                for s in sector_flows
+        # Top Gainers & Losers Columns
+        g_col, l_col = st.columns(2)
+        with g_col:
+            st.markdown("#### 🚀 Top Market Gainers")
+            gainers_rows = [
+                {
+                    "Symbol": g["symbol"],
+                    "Live Price (₹)": f"₹{g['price']:,.2f}",
+                    "Change %": f"+{g['change_pct']:.2f}%",
+                    "Net Move": f"+₹{g.get('net_change', 0):,.2f}",
+                    "Volume": f"{g.get('volume', 0):,}" if g.get("volume") else "—",
+                    "Source": g.get("source", "broker")
+                }
+                for g in breadth["top_gainers"]
             ]
-        ))
+            st.dataframe(pd.DataFrame(gainers_rows), use_container_width=True, hide_index=True)
 
-        fig_sec.update_layout(
-            title="<b>Net Institutional Flow by Sector (₹ Crores)</b>",
-            xaxis_title="Net Inflow (+) / Outflow (-) in ₹ Crores",
-            yaxis_title="",
-            height=max(360, len(sector_flows) * 45),
-            margin=dict(l=20, r=60, t=50, b=30),
-            template="plotly_dark",
-            yaxis=dict(autorange="reversed")
-        )
-
-        st.plotly_chart(fig_sec, use_container_width=True)
-
-        # Sector Flow Breakdown Table
-        sec_rows = []
-        for s in sector_flows:
-            top_stocks_str = ", ".join(f"{ts['symbol']} ({flow_mod.format_inr(ts['net_inr'])})" for ts in s["top_stocks"][:3])
-            sec_rows.append({
-                "Sector": s["sector"],
-                "Net Flow (₹)": flow_mod.format_inr(s["net_flow_inr"]),
-                "Disclosed Buying": flow_mod.format_inr(s["buy_value_inr"]),
-                "Disclosed Selling": flow_mod.format_inr(s["sell_value_inr"]),
-                "Buy Share": f"{s['buy_share_pct']}%",
-                "Deals": s["total_deals"],
-                "Stocks Buying": s["stocks_with_buying"],
-                "Stocks Selling": s["stocks_with_selling"],
-                "Status": s["status"],
-                "Top Net Bought Stocks": top_stocks_str or "—"
-            })
-
-        st.dataframe(pd.DataFrame(sec_rows), use_container_width=True, hide_index=True)
-
-        # Interactive Sector Drill-Down
-        with st.expander("🔍 Interactive Sector Drill-Down (Inspect Constituent Stocks & Transactions)", expanded=False):
-            drill_sec = st.selectbox("Select Sector to Inspect", options=[s["sector"] for s in sector_flows], key="drill_sec_select")
-            drill_deals = [
-                d for d in filtered_deals
-                if big_bull.get_stock_sector(d["symbol"], d.get("security_name", ""), sector_registry) == drill_sec
+        with l_col:
+            st.markdown("#### 🔻 Top Market Losers")
+            losers_rows = [
+                {
+                    "Symbol": l["symbol"],
+                    "Live Price (₹)": f"₹{l['price']:,.2f}",
+                    "Change %": f"{l['change_pct']:+.2f}%",
+                    "Net Move": f"₹{l.get('net_change', 0):,.2f}",
+                    "Volume": f"{l.get('volume', 0):,}" if l.get("volume") else "—",
+                    "Source": l.get("source", "broker")
+                }
+                for l in breadth["top_losers"]
             ]
-            if drill_deals:
-                drill_rows = [
-                    {
-                        "Date": d["date"],
-                        "Symbol": d["symbol"],
-                        "Type": d["deal_type"],
-                        "Action": d["action"],
-                        "Quantity": f"{d['quantity']:,}",
-                        "Price (₹)": f"₹{d['price']:,.2f}",
-                        "Value (₹)": flow_mod.format_inr(d["value_inr"]),
-                        "Client Name": d["client_name"]
-                    }
-                    for d in drill_deals
-                ]
-                st.dataframe(pd.DataFrame(drill_rows), use_container_width=True, hide_index=True)
-            else:
-                st.write("No deals recorded for this sector.")
-    else:
-        st.info("No sector flow activity found for the selected filters.")
+            st.dataframe(pd.DataFrame(losers_rows), use_container_width=True, hide_index=True)
 
-    st.divider()
+        st.divider()
 
-    # 5. Stocks Being Accumulated by Big Buyers
-    st.markdown("#### 3. Stocks Being Accumulated by Big Buyers")
-    st.caption("Stocks ranked by net disclosed institutional buying, buyer breadth, and persistent accumulation.")
+        # Sector Performance Leaderboard
+        st.markdown("#### 🏭 Sector Performance Leaderboard (Ranked)")
+        st.caption("Sectors ranked by live market-cap-weighted performance with advance/decline breadth.")
 
-    if accumulated_stocks:
-        acc_rows = []
-        for s in accumulated_stocks:
-            acc_rows.append({
-                "Stock": s["symbol"],
-                "Company Name": s["security_name"],
+        sec_table_rows = []
+        for s in sec_perf:
+            top_stk = s["top_stock"]
+            top_str = f"{top_stk['symbol']} ({top_stk['change_pct']:+.2f}%)" if top_stk else "—"
+            sec_table_rows.append({
                 "Sector": s["sector"],
-                "Buy Value": flow_mod.format_inr(s["buy_value_inr"]),
-                "Sell Value": flow_mod.format_inr(s["sell_value_inr"]),
-                "Net Flow": flow_mod.format_inr(s["net_flow_inr"]),
-                "Buyers": s["distinct_buyers_count"],
-                "Buy Deals": s["buy_deals"],
-                "Latest Deal": s["latest_deal_date"],
+                "Performance": f"{s['weighted_change_pct']:+.2f}%",
+                "Simple Avg": f"{s['avg_change_pct']:+.2f}%",
+                "Breadth": f"{s['advances']} Adv / {s['declines']} Dec",
+                "Top Performer": top_str,
+                "Market Cap (Cr)": f"₹{s['total_market_cap_cr']:,.0f} Cr",
                 "Trend": s["trend"]
             })
+        st.dataframe(pd.DataFrame(sec_table_rows), use_container_width=True, hide_index=True)
 
-        st.dataframe(pd.DataFrame(acc_rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("No accumulated stocks found matching the criteria.")
+        st.divider()
 
-    st.divider()
+        # Interactive Sector Exploration
+        st.markdown("#### 🔍 Interactive Sector Exploration")
+        st.caption("Select any sector to drill into its constituent stocks.")
 
-    # 6. Repeated Buying & Selling Intelligence
-    st.markdown("#### 4. Smart Money Pattern Recognition (Persistence & Breadth)")
-    st.caption("Distinguishes isolated one-off transactions from systematic multi-buyer and multi-session accumulation.")
+        sector_names = [s["sector"] for s in sec_perf]
+        selected_sec_name = st.selectbox("Select Sector to Explore", options=sector_names, index=0)
+        matched_sec = next((s for s in sec_perf if s["sector"] == selected_sec_name), None)
 
-    pat_tab1, pat_tab2, pat_tab3 = st.tabs(["🔁 Repeated Accumulation (Same Client Across Sessions)", "👥 Multiple Institutional Buyers", "⚖️ Mixed Flow & Repeated Selling"])
+        if matched_sec and matched_sec["stocks"]:
+            sec_stock_rows = [
+                {
+                    "Symbol": st_item["symbol"],
+                    "Company Name": st_item["name"],
+                    "Live Price": f"₹{st_item['price']:,.2f}",
+                    "Prev Close": f"₹{st_item['prev_close']:,.2f}",
+                    "Change %": f"{st_item['change_pct']:+.2f}%",
+                    "Net Move": f"{st_item['net_change']:+.2f}",
+                    "Market Cap (Cr)": f"₹{st_item['market_cap_cr']:,.0f} Cr",
+                    "Volume": f"{st_item['volume']:,}" if st_item.get("volume") else "—"
+                }
+                for st_item in matched_sec["stocks"]
+            ]
+            st.dataframe(pd.DataFrame(sec_stock_rows), use_container_width=True, hide_index=True)
 
-    with pat_tab1:
-        repeated_buying_stocks = [s for s in accumulated_stocks if s["has_repeated_buying"]]
-        if repeated_buying_stocks:
-            rep_rows = []
-            for s in repeated_buying_stocks:
-                rep_clients = ", ".join(s["repeated_buyers"])
-                rep_rows.append({
-                    "Symbol": s["symbol"],
-                    "Sector": s["sector"],
-                    "Net Flow": flow_mod.format_inr(s["net_flow_inr"]),
-                    "Persistent Buyers": rep_clients,
-                    "Total Buy Deals": s["buy_deals"],
-                    "Observation Window": f"{s['earliest_deal_date']} to {s['latest_deal_date']}"
-                })
-            st.dataframe(pd.DataFrame(rep_rows), use_container_width=True, hide_index=True)
+    # =========================================================================
+    # TAB B: MARKET HEATMAP
+    # =========================================================================
+    with tab_heatmap:
+        st.markdown("### 🗺️ Interactive Market Heatmap")
+        st.caption("Rectangular stock tiles grouped by Sector. Tile size indicates Market Capitalisation; color indicates Live Price Movement (Green = Gain, Red = Loss).")
+
+        heatmap_records = big_bull.build_heatmap_records(quotes, sector_registry, market_caps)
+
+        if heatmap_records:
+            df_heat = pd.DataFrame(heatmap_records)
+            fig_tree = px.treemap(
+                df_heat,
+                path=[px.Constant("NSE Market"), "sector", "symbol"],
+                values="market_cap_cr",
+                color="color_val",
+                color_continuous_scale=[
+                    (0.0, "#dc2626"),   # Deep Red for <= -3%
+                    (0.35, "#ef4444"),  # Red
+                    (0.5, "#334155"),   # Slate for 0%
+                    (0.65, "#22c55e"),  # Green
+                    (1.0, "#15803d")    # Dark Green for >= +3%
+                ],
+                color_continuous_midpoint=0.0,
+                custom_data=["price", "change_pct", "name", "market_cap_cr"]
+            )
+
+            fig_tree.update_traces(
+                texttemplate="<b>%{label}</b><br>%{customdata[1]:+.2f}%<br>₹%{customdata[0]:,.2f}",
+                textposition="middle center",
+                hovertemplate="<b>%{label}</b> (%{customdata[2]})<br>Price: ₹%{customdata[0]:,.2f}<br>Change: %{customdata[1]:+.2f}%<br>Market Cap: ₹%{customdata[3]:,.0f} Cr<extra></extra>",
+                textfont=dict(size=14, color="#ffffff")
+            )
+
+            fig_tree.update_layout(
+                margin=dict(t=30, l=10, r=10, b=10),
+                height=650,
+                paper_bgcolor="#0b0f19",
+                plot_bgcolor="#0b0f19",
+                font=dict(color="#f8fafc")
+            )
+
+            st.plotly_chart(fig_tree, use_container_width=True)
+            st.caption("💡 Click on any Sector box in the treemap to zoom into its constituent stocks. Click the top bar to zoom back out.")
         else:
-            st.info("No repeated buyer patterns detected across distinct reporting sessions in the active dataset.")
+            st.info("Heatmap data unavailable. Ensure market cap mappings are configured.")
 
-    with pat_tab2:
-        multi_buyer_stocks = [s for s in accumulated_stocks if s["has_multiple_buyers"]]
-        if multi_buyer_stocks:
-            mb_rows = []
-            for s in multi_buyer_stocks:
-                buyers_list = ", ".join(s["buyer_clients"][:3])
-                if len(s["buyer_clients"]) > 3:
-                    buyers_list += f" (+{len(s['buyer_clients']) - 3} more)"
-                mb_rows.append({
-                    "Symbol": s["symbol"],
-                    "Sector": s["sector"],
-                    "Distinct Buyers": s["distinct_buyers_count"],
-                    "Total Buy Value": flow_mod.format_inr(s["buy_value_inr"]),
-                    "Net Flow": flow_mod.format_inr(s["net_flow_inr"]),
-                    "Disclosed Buyers": buyers_list
-                })
-            st.dataframe(pd.DataFrame(mb_rows), use_container_width=True, hide_index=True)
+        st.divider()
+
+        # Stock Details Inspector
+        st.markdown("#### 🔬 Stock Details Inspector")
+        st.caption("Select any stock to inspect its full quote parameters and historical deal filings.")
+
+        all_mapped_syms = sorted(list(set(r["symbol"] for r in heatmap_records)))
+        selected_insp_sym = st.selectbox("Choose Stock to Inspect", options=all_mapped_syms, index=0)
+
+        insp_q = quotes.get(selected_insp_sym, {})
+        cap_ref = market_caps.get("stocks", {}).get(selected_insp_sym, {})
+
+        ic1, ic2, ic3, ic4 = st.columns(4)
+        with ic1:
+            st.metric(
+                label="Live LTP",
+                value=f"₹{insp_q.get('price', 0.0):,.2f}",
+                delta=f"{insp_q.get('change_pct', 0.0):+.2f}%",
+                delta_color="normal" if insp_q.get("change_pct", 0.0) >= 0 else "inverse"
+            )
+        with ic2:
+            st.metric(
+                label="Previous Close",
+                value=f"₹{insp_q.get('prev_close', 0.0):,.2f}",
+                delta=f"Open: ₹{insp_q.get('open', 0.0):,.2f}" if insp_q.get("open") else None,
+                delta_color="off"
+            )
+        with ic3:
+            st.metric(
+                label="Day Range",
+                value=f"₹{insp_q.get('high', 0.0):,.2f} H",
+                delta=f"₹{insp_q.get('low', 0.0):,.2f} L",
+                delta_color="off"
+            )
+        with ic4:
+            st.metric(
+                label="Volume & Source",
+                value=f"{insp_q.get('volume', 0):,} shs" if insp_q.get("volume") else "Active",
+                delta=insp_q.get("source", "broker").upper(),
+                delta_color="off"
+            )
+
+        # Check for disclosed deals on this stock
+        sym_deals = flow_mod.get_deals_for_symbol(deals, selected_insp_sym) if deals else []
+        if sym_deals:
+            st.markdown(f"**Disclosed Institutional Filings for {selected_insp_sym} ({len(sym_deals)} Deals):**")
+            d_table = [
+                {
+                    "Date": d["date"],
+                    "Type": d["deal_type"],
+                    "Action": d["action"],
+                    "Quantity": f"{d['quantity']:,}",
+                    "Price (₹)": f"₹{d['price']:,.2f}",
+                    "Total Value": flow_mod.format_inr(d["value_inr"]),
+                    "Client Name": d["client_name"]
+                }
+                for d in sym_deals
+            ]
+            st.dataframe(pd.DataFrame(d_table), use_container_width=True, hide_index=True)
         else:
-            st.info("No stocks with multiple distinct institutional buyers found.")
+            st.caption(f"No bulk/block deal disclosures on record for {selected_insp_sym} in `trader/flow/`.")
 
-    with pat_tab3:
-        mixed_or_selling_stocks = [s for s in accumulated_stocks if s["is_mixed_flow"] or s["has_repeated_selling"]]
-        if mixed_or_selling_stocks:
-            ms_rows = []
-            for s in mixed_or_selling_stocks:
-                ms_rows.append({
-                    "Symbol": s["symbol"],
-                    "Sector": s["sector"],
-                    "Pattern": "MIXED FLOW (Transfer / Rebalancing)" if s["is_mixed_flow"] else "REPEATED SELLING",
-                    "Net Flow": flow_mod.format_inr(s["net_flow_inr"]),
-                    "Buy Value": flow_mod.format_inr(s["buy_value_inr"]),
-                    "Sell Value": flow_mod.format_inr(s["sell_value_inr"]),
-                    "Trend": s["trend"]
-                })
-            st.dataframe(pd.DataFrame(ms_rows), use_container_width=True, hide_index=True)
-        else:
-            st.info("No repeated selling or mixed transfer flows detected.")
+    # =========================================================================
+    # TAB C: BIG BULL RADAR
+    # =========================================================================
+    with tab_radar:
+        st.markdown("### 📡 Big Bull Smart Money Radar")
+        st.caption("Surfaces stocks exhibiting repeated institutional accumulation, multiple disclosed buyers, and supporting Upstox live price/volume action.")
 
-    st.divider()
+        if not deals:
+            st.info(
+                "No bulk or block deal CSV files found in `trader/flow/`. "
+                "Download official NSE bulk/block deal CSV files into `trader/flow/` or enable 'Sample Data (Offline Fixture)' in the sidebar to view smart-money radar alerts."
+            )
+            return
 
-    # 7. Volume Confirmation
-    st.markdown("#### 5. Exchange Volume & Price Baseline Confirmation")
-    st.caption("Compares disclosed institutional transactions against broader exchange trading volume and price momentum.")
+        # Overall Disclosed Flow Telemetry
+        kpis_raw = big_bull.compute_market_flow_kpis(deals)
+        d_range = kpis_raw["date_range"]
+        date_str = f"{d_range['earliest']} to {d_range['latest']}" if d_range["earliest"] else "Single Session"
 
-    def mock_or_live_volume_lookup(sym):
-        try:
-            ch = entry_mod.get_chart(f"{sym}.NS", interval="5m")
-            b_list = ch.get("bars", [])
-            if b_list:
-                vols = [b["v"] for b in b_list]
-                res = flow_mod.compute_volume_vs_20d_avg(sym, daily_volumes=vols)
-                res["price"] = b_list[-1]["c"]
-                prev_c = ch.get("prev_close") or b_list[0]["o"]
-                res["price_change_pct"] = round((b_list[-1]["c"] - prev_c) / prev_c * 100, 2) if prev_c else 0.0
-                return res
-        except Exception:
-            pass
-        return None
+        rk1, rk2, rk3, rk4 = st.columns(4)
+        with rk1:
+            st.metric(
+                label="Disclosed Buying",
+                value=flow_mod.format_inr(kpis_raw["total_buy_value_inr"]),
+                delta=f"{kpis_raw['total_buy_deals']} Buy Deals",
+                delta_color="normal"
+            )
+        with rk2:
+            st.metric(
+                label="Disclosed Selling",
+                value=flow_mod.format_inr(kpis_raw["total_sell_value_inr"]),
+                delta=f"{kpis_raw['total_sell_deals']} Sell Deals",
+                delta_color="inverse"
+            )
+        with rk3:
+            st.metric(
+                label="Net Smart Money Flow",
+                value=flow_mod.format_inr(kpis_raw["net_flow_inr"]),
+                delta="NET CAPITAL INFLOW" if kpis_raw["net_flow_inr"] >= 0 else "NET CAPITAL OUTFLOW",
+                delta_color="normal" if kpis_raw["net_flow_inr"] >= 0 else "inverse"
+            )
+        with rk4:
+            st.metric(
+                label="Observation Window",
+                value=f"{kpis_raw['total_deals']} Total Deals",
+                delta=date_str,
+                delta_color="off"
+            )
 
-    confirmed_stocks = big_bull.add_volume_confirmation(accumulated_stocks, mock_or_live_volume_lookup)
-    vol_rows = []
-    for s in confirmed_stocks[:10]:
-        vol_ratio_str = f"{s['volume_ratio']:.2f}x" if s.get("volume_ratio") else "N/A"
-        surge_status = "⚡ Surge (>1.2x)" if s.get("volume_confirmed") else ("⚪ Normal" if s.get("volume_ratio") else "No bar data")
-        price_str = f"₹{s['price']:,.2f}" if s.get("price") else "—"
-        pct_str = f"{s['price_change_pct']:+.2f}%" if s.get("price_change_pct") is not None else "—"
-        vol_rows.append({
-            "Symbol": s["symbol"],
-            "Sector": s["sector"],
-            "Net Flow": flow_mod.format_inr(s["net_flow_inr"]),
-            "Latest Volume": f"{s['latest_volume']:,}" if s.get("latest_volume") else "—",
-            "Volume vs 20d Avg": vol_ratio_str,
-            "Volume Confirmation": surge_status,
-            "Last Price": price_str,
-            "Price Move": pct_str
-        })
+        st.divider()
 
-    st.dataframe(pd.DataFrame(vol_rows), use_container_width=True, hide_index=True)
+        # Generate Explainable Radar Alerts
+        radar_alerts = big_bull.generate_big_bull_radar(deals, quotes, sector_registry)
 
-    st.divider()
+        st.markdown("#### 🎯 Smart Money Accumulation & Alert Signals")
+        st.caption("Institutional buying disclosures corroborated with live Upstox price reaction and volume surge.")
 
-    # 8. BIG BULL Watchlist
-    st.markdown("#### 6. BIG BULL WATCHLIST (Institutional Accumulation Candidates)")
-    st.caption("Multi-factor conviction score (0 to 100 pts) based on net buying, multi-buyer breadth, session persistence, sector tailwinds, and volume baseline.")
+        if radar_alerts:
+            for item in radar_alerts[:8]:
+                conviction_badge = "🔥 HIGH CONVICTION" if item["is_high_conviction"] else "👀 MONITORING"
+                conviction_bg = "#15803d" if item["is_high_conviction"] else "#334155"
+                net_str = flow_mod.format_inr(item["net_flow_inr"])
+                net_color = "#10b981" if item["net_flow_inr"] >= 0 else "#ef4444"
 
-    watchlist = big_bull.generate_big_bull_watchlist(confirmed_stocks, sector_flows=sector_flows, min_score=30)
+                price_str = f"₹{item['live_price']:,.2f}" if item["live_price"] else "—"
+                chg_str = f"{item['live_change_pct']:+.2f}%" if item["live_change_pct"] is not None else "—"
 
-    if watchlist:
-        for idx, item in enumerate(watchlist[:8]):
-            with st.container():
-                score_color = "#10b981" if item["score"] >= 65 else "#38bdf8"
-                score_html = f"<span style='background-color: {score_color}; color: #0f172a; font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 14px;'>Score: {item['score']}/100</span>"
-                reasons_html = " ".join([f"<span style='background-color: #1e293b; border: 1px solid #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-right: 6px;'>{r}</span>" for r in item["reasons"]])
-
-                st.markdown(
-                    f"""
-                    <div style="background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <div>
-                                <span style="font-size: 18px; font-weight: 700; color: #f8fafc; margin-right: 10px;">{item['symbol']}</span>
-                                <span style="color: #64748b; font-size: 13px;">{item['security_name']}</span>
-                                <span style="color: #94a3b8; font-size: 12px; margin-left: 10px;">• {item['sector']}</span>
+                with st.container():
+                    st.markdown(
+                        f"""
+                        <div style="background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div>
+                                    <span style="font-size: 18px; font-weight: 700; color: #f8fafc;">{item['symbol']}</span>
+                                    <span style="font-size: 13px; color: #94a3b8; margin-left: 8px;">{item['security_name']} • {item['sector']}</span>
+                                </div>
+                                <div>
+                                    <span style="background-color: {conviction_bg}; color: #ffffff; padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;">{conviction_badge}</span>
+                                    <span style="background-color: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px;">{item['pattern']}</span>
+                                </div>
                             </div>
-                            <div>{score_html}</div>
+                            <div style="display: flex; gap: 24px; font-size: 13px; margin: 8px 0; color: #cbd5e1;">
+                                <div><b>Disclosed Net Flow:</b> <span style="color: {net_color}; font-weight: 700;">{net_str}</span></div>
+                                <div><b>Disclosed Buying:</b> <span style="color: #10b981;">{flow_mod.format_inr(item['buy_value_inr'])}</span></div>
+                                <div><b>Live Upstox LTP:</b> <span style="color: #38bdf8; font-weight: 600;">{price_str} ({chg_str})</span></div>
+                                <div><b>Latest Deal Date:</b> <span>{item['latest_deal_date']}</span></div>
+                            </div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 8px;">
-                            <span style="color: #10b981; font-weight: 600;">Net Flow: {flow_mod.format_inr(item['net_flow_inr'])} ({item['trend']})</span>
-                            <span style="color: #94a3b8;">Disclosed Buying: {flow_mod.format_inr(item['buy_value_inr'])} | Buyers: {item['buyers_count']}</span>
-                        </div>
-                        <div>{reasons_html}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                with st.expander(f"Inspect Deal Records for {item['symbol']}", expanded=False):
-                    d_rows = [
-                        {
-                            "Date": d["date"],
-                            "Type": d["deal_type"],
-                            "Action": d["action"],
-                            "Quantity": f"{d['quantity']:,}",
-                            "Price (₹)": f"₹{d['price']:,.2f}",
-                            "Value (₹)": flow_mod.format_inr(d["value_inr"]),
-                            "Client": d["client_name"]
-                        }
-                        for d in item["deal_records"]
-                    ]
-                    st.dataframe(pd.DataFrame(d_rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("No stocks currently qualify for the institutional conviction watchlist threshold.")
+                        """,
+                        unsafe_allow_html=True
+                    )
 
-    st.divider()
+                    with st.expander(f"🔍 Why is {item['symbol']} highlighted? (Click to view explainable rationale & underlying deals)", expanded=False):
+                        st.markdown("**Evidence & Convergence Factors:**")
+                        for r in item["reasons"]:
+                            st.markdown(f"- {r}")
 
-    # 9. Detailed Transaction History
-    st.markdown("#### 7. Disclosed Deal Audit Log")
-    st.caption("Complete underlying transaction records parsed from local CSV disclosures.")
+                        if item.get("deals"):
+                            st.markdown("**Underlying Reported Transactions:**")
+                            d_rows = [
+                                {
+                                    "Date": d["date"],
+                                    "Type": d["deal_type"],
+                                    "Action": d["action"],
+                                    "Quantity": f"{d['quantity']:,}",
+                                    "Price": f"₹{d['price']:,.2f}",
+                                    "Value": flow_mod.format_inr(d["value_inr"]),
+                                    "Client Name": d["client_name"]
+                                }
+                                for d in item["deals"]
+                            ]
+                            st.dataframe(pd.DataFrame(d_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("No stocks currently meet radar accumulation criteria.")
 
-    search_deal = st.text_input("Search Deal Records (Symbol, Client Name)", value="")
-    display_deals = filtered_deals
-    if search_deal:
-        s_up = search_deal.upper()
-        display_deals = [
-            d for d in display_deals
-            if s_up in d["symbol"].upper() or s_up in d.get("client_name", "").upper() or s_up in d.get("security_name", "").upper()
-        ]
+        st.divider()
 
-    raw_table = [
-        {
-            "Date": d["date"],
-            "Symbol": d["symbol"],
-            "Company": d.get("security_name", ""),
-            "Sector": big_bull.get_stock_sector(d["symbol"], d.get("security_name", ""), sector_registry),
-            "Type": d["deal_type"],
-            "Action": d["action"],
-            "Quantity": f"{d['quantity']:,}",
-            "Price (₹)": f"₹{d['price']:,.2f}",
-            "Value (₹)": flow_mod.format_inr(d["value_inr"]),
-            "Client Name": d["client_name"]
-        }
-        for d in display_deals
-    ]
-    st.dataframe(pd.DataFrame(raw_table), use_container_width=True, hide_index=True)
+        # Market-wide raw deal ledger audit
+        with st.expander("📑 Complete Disclosed Deal Ledger", expanded=False):
+            search_deal = st.text_input("Search Ledger by Symbol or Client Name", value="")
+            disp = deals
+            if search_deal:
+                s_up = search_deal.upper()
+                disp = [d for d in disp if s_up in d["symbol"].upper() or s_up in d.get("client_name", "").upper()]
+
+            raw_tbl = [
+                {
+                    "Date": d["date"],
+                    "Symbol": d["symbol"],
+                    "Company": d.get("security_name", ""),
+                    "Sector": big_bull.get_stock_sector(d["symbol"], d.get("security_name", ""), sector_registry),
+                    "Type": d["deal_type"],
+                    "Action": d["action"],
+                    "Quantity": f"{d['quantity']:,}",
+                    "Price (₹)": f"₹{d['price']:,.2f}",
+                    "Total Value": flow_mod.format_inr(d["value_inr"]),
+                    "Client Name": d["client_name"]
+                }
+                for d in disp
+            ]
+            st.dataframe(pd.DataFrame(raw_tbl), use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------- Main Entry Point
