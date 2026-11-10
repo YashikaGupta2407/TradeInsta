@@ -1,0 +1,267 @@
+{
+  "created_by": "trader-scanner",
+  "created_at": "2026-10-27T08:19:35Z",
+  "mode": "orb",
+  "as_of": "2026-10-27 13:49 IST",
+  "universe": 100,
+  "scanned": 24,
+  "failed": 0,
+  "unconfirmed": 0,
+  "source": "yahoo",
+  "or_minutes": 15,
+  "interval": "5m",
+  "filters": {
+    "min_price": 20.0,
+    "min_volume": 100000
+  },
+  "note": "A scan is a list of charts that match a rule, not a list of stocks to buy.",
+  "hits": [
+    {
+      "symbol": "AARTIPHARM.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 841.55,
+      "at": "9:35 AM",
+      "bar_start": "09:30",
+      "bar_index": 3,
+      "or_high": 838.8,
+      "or_low": 817.5,
+      "pct_over": 0.33
+    },
+    {
+      "symbol": "ABREL.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 1091.4,
+      "at": "9:35 AM",
+      "bar_start": "09:30",
+      "bar_index": 3,
+      "or_high": 1090.8,
+      "or_low": 1075.9,
+      "pct_over": 0.06
+    },
+    {
+      "symbol": "AEROENTER.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 123.61,
+      "at": "9:35 AM",
+      "bar_start": "09:30",
+      "bar_index": 3,
+      "or_high": 123.5,
+      "or_low": 116.49,
+      "pct_over": 0.09
+    },
+    {
+      "symbol": "AFCONS.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 213.78,
+      "at": "9:35 AM",
+      "bar_start": "09:30",
+      "bar_index": 3,
+      "or_high": 213.44,
+      "or_low": 210.8,
+      "pct_over": 0.16
+    },
+    {
+      "symbol": "AFFLE.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 1350.5,
+      "at": "9:35 AM",
+      "bar_start": "09:30",
+      "bar_index": 3,
+      "or_high": 1344.9,
+      "or_low": 1322.5,
+      "pct_over": 0.42
+    },
+    {
+      "symbol": "AKUMS.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 705.9,
+      "at": "9:35 AM",
+      "bar_start": "09:30",
+      "bar_index": 3,
+      "or_high": 703.5,
+      "or_low": 682.25,
+      "pct_over": 0.34
+    },
+    {
+      "symbol": "63MOONS.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 907.5,
+      "at": "9:40 AM",
+      "bar_start": "09:35",
+      "bar_index": 4,
+      "or_high": 902.65,
+      "or_low": 891.8,
+      "pct_over": 0.54
+    },
+    {
+      "symbol": "ADANIPORTS.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 1756.6,
+      "at": "9:40 AM",
+      "bar_start": "09:35",
+      "bar_index": 4,
+      "or_high": 1754.1,
+      "or_low": 1741.0,
+      "pct_over": 0.14
+    },
+    {
+      "symbol": "AEROFLEX.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 479.15,
+      "at": "9:40 AM",
+      "bar_start": "09:35",
+      "bar_index": 4,
+      "or_high": 477.8,
+      "or_low": 453.0,
+      "pct_over": 0.28
+    },
+    {
+      "symbol": "AETHER.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 1512.1,
+      "at": "9:40 AM",
+      "bar_start": "09:35",
+      "bar_index": 4,
+      "or_high": 1510.6,
+      "or_low": 1460.0,
+      "pct_over": 0.1
+    },
+    {
+      "symbol": "ACE.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 1025.5,
+      "at": "9:45 AM",
+      "bar_start": "09:40",
+      "bar_index": 5,
+      "or_high": 1023.4,
+      "or_low": 1007.3,
+      "pct_over": 0.21
+    },
+    {
+      "symbol": "ACUTAAS.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 3426.8,
+      "at": "9:45 AM",
+      "bar_start": "09:40",
+      "bar_index": 5,
+      "or_high": 3417.7,
+      "or_low": 3365.2,
+      "pct_over": 0.27
+    },
+    {
+      "symbol": "ADANIPOWER.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 188.55,
+      "at": "9:45 AM",
+      "bar_start": "09:40",
+      "bar_index": 5,
+      "or_high": 188.29,
+      "or_low": 185.36,
+      "pct_over": 0.14
+    },
+    {
+      "symbol": "AEROPLANE.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 209.0,
+      "at": "9:45 AM",
+      "bar_start": "09:40",
+      "bar_index": 5,
+      "or_high": 208.14,
+      "or_low": 205.8,
+      "pct_over": 0.41
+    },
+    {
+      "symbol": "AJMERA.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 127.4,
+      "at": "9:45 AM",
+      "bar_start": "09:40",
+      "bar_index": 5,
+      "or_high": 126.34,
+      "or_low": 122.77,
+      "pct_over": 0.84
+    },
+    {
+      "symbol": "ADANIGREEN.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 1268.0,
+      "at": "10:00 AM",
+      "bar_start": "09:55",
+      "bar_index": 8,
+      "or_high": 1266.2,
+      "or_low": 1243.1,
+      "pct_over": 0.14
+    },
+    {
+      "symbol": "ABCAPITAL.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 354.85,
+      "at": "10:50 AM",
+      "bar_start": "10:45",
+      "bar_index": 18,
+      "or_high": 354.6,
+      "or_low": 350.45,
+      "pct_over": 0.07
+    },
+    {
+      "symbol": "AEQUS.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 218.9,
+      "at": "11:40 AM",
+      "bar_start": "11:35",
+      "bar_index": 28,
+      "or_high": 217.85,
+      "or_low": 196.85,
+      "pct_over": 0.48
+    },
+    {
+      "symbol": "ABDL.NS",
+      "setups": [
+        "orb"
+      ],
+      "price": 689.6,
+      "at": "1:45 PM",
+      "bar_start": "13:40",
+      "bar_index": 53,
+      "or_high": 688.0,
+      "or_low": 674.05,
+      "pct_over": 0.23
+    }
+  ]
+}

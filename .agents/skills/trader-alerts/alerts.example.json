@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "id": "opening-bell",
+      "type": "opening_bell"
+    },
+    {
+      "id": "reliance-stop",
+      "symbol": "RELIANCE.NS",
+      "type": "stop",
+      "price": 1180.0
+    },
+    {
+      "id": "reliance-target",
+      "symbol": "RELIANCE.NS",
+      "type": "target",
+      "price": 1250.0
+    },
+    {
+      "id": "tcs-pct",
+      "symbol": "TCS.NS",
+      "type": "pct_move",
+      "pct": 2.5
+    },
+    {
+      "id": "flat-by-close",
+      "type": "time",
+      "at": "15:15",
+      "label": "flat by close"
+    }
+  ]
+}

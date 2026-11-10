@@ -1,0 +1,21 @@
+# Environment variables and API credentials
+.env
+*.env
+.env.*
+*.token
+*.key
+tokens/
+credentials/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Operating System
+.DS_Store
+Thumbs.db

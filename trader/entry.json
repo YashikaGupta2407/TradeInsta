@@ -1,0 +1,23 @@
+{
+  "created_by": "trader-entry",
+  "symbol": "RELIANCE.NS",
+  "setup": "orb",
+  "side": "buy",
+  "date": "2026-10-28",
+  "status": "triggered",
+  "time": "9:45 AM",
+  "bar_start": "09:40",
+  "bar_index": 5,
+  "price": 1199.2,
+  "level": 1195.4,
+  "interval": "5m",
+  "opening_range": {
+    "high": 1195.4,
+    "low": 1187.0,
+    "minutes": 15
+  },
+  "source": "upstox",
+  "bar_age": null,
+  "checked_at": "2026-10-28T13:46:00Z",
+  "reason": "the 9:40 bar closed above the range high"
+}
