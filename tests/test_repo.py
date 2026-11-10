@@ -8,7 +8,8 @@ from _load import ROOT
 SKILLS_DIR = os.path.join(ROOT, ".agents", "skills") if os.path.isdir(os.path.join(ROOT, ".agents", "skills")) else ROOT
 SKILLS = [
     "trader-scanner", "trader-news", "trader-entry", "trader-exit",
-    "trader-timemachine", "trader-risk", "trader-budget", "trader-alerts"
+    "trader-timemachine", "trader-risk", "trader-budget", "trader-alerts",
+    "trader-flow"
 ]
 REMOVED_SKILLS = ["trader-broker", "trader-pelosi", "trader-analyst"]
 V1_ONLY = ["trader-copycat", "trader-screener", "trader-tax", "trader-rebalance"]

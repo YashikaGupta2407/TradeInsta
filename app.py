@@ -37,6 +37,7 @@ alerts = load_skill("trader-alerts", "alerts")
 entry_mod = load_skill("trader-entry", "entry")
 exit_mod = load_skill("trader-exit", "exit")
 budget_mod = load_skill("trader-budget", "size")
+flow_mod = load_skill("trader-flow", "flow")
 import trader.broker_data as broker_data
 
 # ---------------------------------------------------------------- Universe Lookup
@@ -544,6 +545,94 @@ def main():
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+    # ---------------------------------------------------------------- Flow Section
+    st.markdown("### 🌊 Flow (previous day, not live)")
+    st.caption("Information only, not a trade recommendation. Reflects reported institutional and promoter bulk/block deals.")
+
+    flow_dir = os.path.join(ROOT, "trader", "flow")
+    deals = flow_mod.load_flow_deals(flow_dir=flow_dir)
+    # If sample mode and no files in trader/flow/, fallback to test fixture for preview
+    if is_sample_mode and not deals:
+        fixture_flow_dir = os.path.join(ROOT, "tests", "fixtures", "trader-flow")
+        deals = flow_mod.load_flow_deals(flow_dir=fixture_flow_dir)
+
+    sym_flow = flow_mod.get_symbol_flow_summary(deals, resolved_symbol)
+    vol_ratio = flow_mod.compute_volume_vs_20d_avg(resolved_symbol, daily_volumes=[b["v"] for b in bars] if bars else None)
+
+    f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns(5)
+    with f_col1:
+        st.metric(
+            label="Bulk/Block Deals",
+            value=f"{sym_flow['total_deals']}",
+            delta=f"{sym_flow['buy_deals']} Buy / {sym_flow['sell_deals']} Sell",
+            delta_color="off"
+        )
+    with f_col2:
+        st.metric(
+            label="Total Buy Flow",
+            value=flow_mod.format_inr(sym_flow["buy_value_inr"]),
+            delta=f"{sym_flow['buy_quantity']:,} shs" if sym_flow['buy_quantity'] else None,
+            delta_color="normal"
+        )
+    with f_col3:
+        st.metric(
+            label="Total Sell Flow",
+            value=flow_mod.format_inr(sym_flow["sell_value_inr"]),
+            delta=f"{sym_flow['sell_quantity']:,} shs" if sym_flow['sell_quantity'] else None,
+            delta_color="inverse"
+        )
+    with f_col4:
+        net_delta_color = "normal" if sym_flow["net_value_inr"] >= 0 else "inverse"
+        st.metric(
+            label="Net Flow",
+            value=flow_mod.format_inr(sym_flow["net_value_inr"]),
+            delta=sym_flow["net_action"],
+            delta_color=net_delta_color
+        )
+    with f_col5:
+        st.metric(
+            label="Volume vs 20d Avg",
+            value=f"{vol_ratio['ratio']:.2f}x" if vol_ratio.get("ratio") else "N/A",
+            delta=f"{vol_ratio.get('pct_diff', 0):+.1f}%" if vol_ratio.get("pct_diff") is not None else vol_ratio.get("label", ""),
+            delta_color="off"
+        )
+
+    if sym_flow["deals"]:
+        deal_rows = []
+        for d in sym_flow["deals"]:
+            pct_val = f"{d['pct_shares']:.2f}%" if d.get("pct_shares") is not None else "-"
+            deal_rows.append({
+                "Date": d["date"],
+                "Type": d["deal_type"],
+                "Action": d["action"],
+                "Quantity": f"{d['quantity']:,}",
+                "Price (₹)": f"₹{d['price']:,.2f}",
+                "Total Value": flow_mod.format_inr(d["value_inr"]),
+                "% Stake": pct_val,
+                "Client Name": d["client_name"]
+            })
+        st.dataframe(pd.DataFrame(deal_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info(f"No bulk or block deals recorded for {resolved_symbol} in trader/flow/. (Download CSV files into trader/flow/ to analyze institutional flow).")
+
+    with st.expander("🏆 Top Stocks by Deal Size Across Market (from downloaded flow files)", expanded=False):
+        top_stocks = flow_mod.get_top_stocks_by_deal_size(deals, top_n=10)
+        if top_stocks:
+            top_rows = []
+            for t in top_stocks:
+                top_rows.append({
+                    "Symbol": t["symbol"],
+                    "Security Name": t["security_name"],
+                    "Deals": t["total_deals"],
+                    "Total Turnover": flow_mod.format_inr(t["total_value_inr"]),
+                    "Buy Flow": flow_mod.format_inr(t["buy_value_inr"]),
+                    "Sell Flow": flow_mod.format_inr(t["sell_value_inr"]),
+                    "Net Flow": flow_mod.format_inr(t["net_value_inr"])
+                })
+            st.dataframe(pd.DataFrame(top_rows), use_container_width=True, hide_index=True)
+        else:
+            st.write("No deal files currently loaded in `trader/flow/`. Place downloaded CSV files there to see market-wide deal rankings.")
 
     # ---------------------------------------------------------------- Footer Note
     st.markdown(

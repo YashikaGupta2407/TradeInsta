@@ -8,11 +8,12 @@ TradeInsta is an end-to-end quantitative trading pipeline designed specifically 
 
 ## Architecture & Workflow
 
-The pipeline executes through 8 modular trading skills:
+The pipeline executes through 9 modular trading skills:
 
 ```mermaid
 flowchart LR
     A[Scanner] --> B[News]
+    A -.-> I[Flow]
     B --> C[Entry]
     C --> D[Exit]
     D --> E[Time Machine]
@@ -23,12 +24,13 @@ flowchart LR
 
 1. **Scanner** (`trader-scanner`): Scans thousands of charts for Opening Range Breakouts (ORB), bull flags, 20-day high breakouts, and oversold bounces. Writes `trader/watchlist.json`.
 2. **News** (`trader-news`): Monitors Yahoo Finance headlines and corporate filings (SEC EDGAR / NSE announcements) to detect catalysts and news momentum.
-3. **Entry** (`trader-entry`): Tracks candle-by-candle price action (1m / 5m bars) and confirms entry on verified bar closes above the opening range with volume filters. Writes `trader/entry.json`.
-4. **Exit** (`trader-exit`): Computes tick-accurate stop-losses (e.g., OR midpoint, OR low, ATR) and 1R/2R profit targets before entering. Writes `trader/plan.json`.
-5. **Time Machine** (`trader-timemachine`): Replays 10,000 simulated sessions via Monte Carlo bootstrap using 60 days of 5-minute historical bars to calculate win rates, expected R, and odds of target vs. stop.
-6. **Budget** (`trader-budget`): Sizes position to fit max loss limits, capital buffers, and Indian statutory transaction costs (Brokerage, STT, Exchange turnover fee, SEBI fee, GST, and Stamp duty). Writes proposed orders to `trader/orders.json`.
-7. **Risk** (`trader-risk`): Gatekeeper enforcing daily loss caps, max trades per day, trading time windows (e.g., 09:30–15:00 IST), and reward-to-risk minimums. Emits `PASS` or `BLOCK`.
-8. **Alerts** (`trader-alerts`): Monitors real-time quotes, tracks stops, targets, and flat-by-close deadlines (15:15 IST), triggering non-spam single-shot alerts.
+3. **Flow** (`trader-flow`): Parses user-downloaded NSE bulk and block deal CSV reports from `trader/flow/`, surfacing institutional positions and volume anomalies.
+4. **Entry** (`trader-entry`): Tracks candle-by-candle price action (1m / 5m bars) and confirms entry on verified bar closes above the opening range with volume filters. Writes `trader/entry.json`.
+5. **Exit** (`trader-exit`): Computes tick-accurate stop-losses (e.g., OR midpoint, OR low, ATR) and 1R/2R profit targets before entering. Writes `trader/plan.json`.
+6. **Time Machine** (`trader-timemachine`): Replays 10,000 simulated sessions via Monte Carlo bootstrap using 60 days of 5-minute historical bars to calculate win rates, expected R, and odds of target vs. stop.
+7. **Budget** (`trader-budget`): Sizes position to fit max loss limits, capital buffers, and Indian statutory transaction costs (Brokerage, STT, Exchange turnover fee, SEBI fee, GST, and Stamp duty). Writes proposed orders to `trader/orders.json`.
+8. **Risk** (`trader-risk`): Gatekeeper enforcing daily loss caps, max trades per day, trading time windows (e.g., 09:30–15:00 IST), and reward-to-risk minimums. Emits `PASS` or `BLOCK`.
+9. **Alerts** (`trader-alerts`): Monitors real-time quotes, tracks stops, targets, and flat-by-close deadlines (15:15 IST), triggering non-spam single-shot alerts.
 
 ---
 
@@ -38,6 +40,7 @@ flowchart LR
 |:---|:---|:---|
 | **[trader-scanner](.agents/skills/trader-scanner)** | `scan.py` | Chart & ORB breakout scanner for NSE stocks (`.NS`) |
 | **[trader-news](.agents/skills/trader-news)** | `news.py` | News monitor for ticker catalysts and filings |
+| **[trader-flow](.agents/skills/trader-flow)** | `flow.py` | Institutional bulk and block deal monitor for NSE stocks |
 | **[trader-entry](.agents/skills/trader-entry)** | `entry.py` | Candle-by-candle opening-range breakout entry timer |
 | **[trader-exit](.agents/skills/trader-exit)** | `exit.py` | Stop-loss and target planner rounded to ₹0.05 tick size |
 | **[trader-timemachine](.agents/skills/trader-timemachine)** | `timemachine.py` | 10,000-session Monte Carlo simulation & backtester |
@@ -72,6 +75,7 @@ Skill-Trade/
 │       ├── trader-budget/
 │       ├── trader-entry/
 │       ├── trader-exit/
+│       ├── trader-flow/
 │       ├── trader-news/
 │       ├── trader-risk/
 │       ├── trader-scanner/
@@ -79,9 +83,10 @@ Skill-Trade/
 ├── trader/                      # Runtime state, configurations, and data
 │   ├── config.json              # Risk, budget, and statutory charge parameters
 │   ├── holidays.json            # NSE trading holidays (2025-2027)
+│   ├── flow/                    # Downloaded NSE bulk and block deal CSV files
 │   └── broker_data.py           # Broker quote and market data adapters
 ├── tests/                       # Complete unit and regression test suite
-│   ├── fixtures/                # Offline market data and filing fixtures
+│   ├── fixtures/                # Offline market data, flow, and filing fixtures
 │   └── test_*.py                # Unit test suite covering all modules
 ├── app.py                       # Local Streamlit UI dashboard
 └── .streamlit/                  # Streamlit configuration (127.0.0.1 binding)
@@ -93,10 +98,11 @@ Skill-Trade/
 
 TradeInsta includes an interactive local Streamlit dashboard wrapping the trading skills on a single screen:
 - **Search**: By company name or NSE ticker symbol (e.g. `RELIANCE`, `Infosys`, `TCS.NS`).
-- **Data Source & Bar Age Badge**: Live broker (green), delayed Yahoo (red), or market closed (grey).
+- **Data Source & Bar Age Badge**: Live broker (green), delayed Yahoo (red), market closed (grey), or sample fixture data (purple).
 - **Levels & Telemetry**: 15m Opening Range (High/Low), signal status, entry level, stop, and target.
 - **Budget & Charges**: Position size and breakdown of statutory charges (STT, brokerage, SEBI, GST, stamp duty) using `trader/config.json`.
 - **5-Minute Chart**: Interactive candlestick chart with plotted entry, stop, target, and opening-range levels.
+- **Institutional Flow**: Latest bulk and block deals (Buy/Sell, quantity, price, stake %) and volume vs. 20-day average.
 
 Launch locally on `127.0.0.1`:
 ```bash

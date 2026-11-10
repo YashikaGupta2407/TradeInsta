@@ -371,6 +371,50 @@ def _load_broker():
         return None
 
 
+def _load_flow():
+    import importlib.util
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "trader-flow", "flow.py")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "skills", "trader-flow", "flow.py")),
+        os.path.abspath(os.path.join(os.getcwd(), ".agents", "skills", "trader-flow", "flow.py")),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                spec = importlib.util.spec_from_file_location("trader_flow", p)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+            except Exception:
+                pass
+    return None
+
+
+def annotate_flow(hits, flow_dir="trader/flow"):
+    """Annotate scanner hits with institutional bulk/block deal activity if available."""
+    if not hits:
+        return
+    flow_mod = _load_flow()
+    if not flow_mod:
+        return
+    deals = flow_mod.load_flow_deals(flow_dir=flow_dir)
+    if not deals:
+        return
+    for h in hits:
+        sym = h.get("symbol")
+        if not sym:
+            continue
+        sym_deals = flow_mod.get_deals_for_symbol(deals, sym)
+        if sym_deals:
+            summary = flow_mod.get_symbol_flow_summary(deals, sym)
+            h["flow"] = {
+                "deals": summary["total_deals"],
+                "net_action": summary["net_action"],
+                "net_value_inr": summary["net_value_inr"],
+                "tag": f"FLOW:{summary['net_action']}"
+            }
+
+
 def to_yahoo(sym):
     s = sym.upper()
     if s.endswith(".NS") or s.endswith(".BO"):
@@ -1066,6 +1110,7 @@ def cmd_daily(a):
                  % ("{:,}".format(len(symbols)), (len(symbols) + SPARK_MAX - 1) // SPARK_MAX))
         data, failed = fetch_spark(symbols, "3mo", "1d", a.pause, a)
     hits, counts, last_date = scan_daily(data, symbols, now, min_price, min_volume)
+    annotate_flow(hits)
     nfailed = len(symbols) - counts["fetched"]
     as_of = ("%s close" % last_date.isoformat()) if last_date else None
     doc = {"created_by": "trader-scanner", "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "mode": "daily",
@@ -1101,8 +1146,9 @@ def cmd_daily(a):
         print("No setups.")
     for h in hits[:a.show]:
         formatted_price = ("₹{:,.2f}" if indian else "${:,.2f}").format(h["price"])
-        print("  %-6s %10s  RSI %5.1f  %s" % (h["symbol"], formatted_price, h["rsi"],
-                                              ", ".join(LABEL[t] for t in h["setups"])))
+        flow_tag = f"  [{h['flow']['tag']}]" if h.get("flow") else ""
+        print("  %-6s %10s  RSI %5.1f  %s%s" % (h["symbol"], formatted_price, h["rsi"],
+                                              ", ".join(LABEL[t] for t in h["setups"]), flow_tag))
     if len(hits) > a.show:
         print("  ... and %d more in the watchlist (--show N for more)." % (len(hits) - a.show))
     if not a.no_write:
@@ -1190,6 +1236,7 @@ def cmd_orb(a):
             return parse_chart(yahoo_get(chart_path(sym, rng, "%dm" % BAR_MIN)), sym)
     hits, counts, failed2 = scan_orb(data, symbols, day, cutoff, a.or_minutes, min_price, min_volume, confirm,
                                      a.max_confirm, us=us)
+    annotate_flow(hits)
     failed = dict(failed or {})
     failed.update(failed2)
     nfailed = len([s for s in symbols if s in failed])
@@ -1229,8 +1276,9 @@ def cmd_orb(a):
                  else "{:,}".format(counts["scanned"]), clock_label(cutoff)))
         for h in hits[:a.show]:
             formatted_price = ("₹{:,.2f}" if indian else "${:,.2f}").format(h["price"])
-            print("  %8s  %-6s %10s  range %s to %s  %+.2f%% over" % (
-                h["at"], h["symbol"], formatted_price, _p(h["or_low"]), _p(h["or_high"]), h["pct_over"]))
+            flow_tag = f"  [{h['flow']['tag']}]" if h.get("flow") else ""
+            print("  %8s  %-6s %10s  range %s to %s  %+.2f%% over%s" % (
+                h["at"], h["symbol"], formatted_price, _p(h["or_low"]), _p(h["or_high"]), h["pct_over"], flow_tag))
         if len(hits) > a.show:
             print("  ... and %d more in the watchlist (--show N for more)." % (len(hits) - a.show))
     else:
