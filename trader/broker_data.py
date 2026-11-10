@@ -684,7 +684,7 @@ def _generate_sample_quotes(symbols):
     return out
 
 
-def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEFAULT_TIMEOUT):
+def fetch_market_overview_quotes(symbols, is_sample_mode=False):
     """Fetch live or sample quotes for a batch of symbols with clear provenance.
 
     - In sample mode (is_sample_mode=True): returns deterministic sample fixture quotes.
@@ -719,7 +719,7 @@ def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEF
         chunk_size = 100
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
-            b_quotes = get_realtime_quotes(chunk, timeout=timeout)
+            b_quotes = get_realtime_quotes(chunk, timeout=DEFAULT_TIMEOUT)
             if b_quotes:
                 quotes.update(b_quotes)
 
