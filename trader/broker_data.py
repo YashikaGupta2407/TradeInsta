@@ -51,6 +51,19 @@ COMMON_UPSTOX_INSTRUMENTS = {
     "ONGC": "NSE_EQ|INE213A01029",
 }
 
+__all__ = [
+    "active_broker",
+    "get_realtime_quotes",
+    "get_intraday_candles",
+    "fetch_upstox_quotes",
+    "fetch_upstox_candles",
+    "fetch_fyers_quotes",
+    "fetch_fyers_candles",
+    "fetch_market_overview_quotes",
+    "load_upstox_instruments",
+]
+
+
 
 def active_broker():
     """Detect which broker credentials are set in environment variables.
@@ -713,19 +726,19 @@ def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEF
     # For symbols missing from broker or if broker credentials are not set, query Yahoo fallback
     missing = [s for s in symbols if s not in quotes and f"{s}.NS" not in quotes]
     if missing and not broker:
+        alerts = None
         try:
-            import trader.broker_data
-            from .agents.skills.trader_alerts import alerts
-        except Exception:
-            try:
-                import importlib.util
-                p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "trader-alerts", "alerts.py"))
+            import importlib.util
+            p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "trader-alerts", "alerts.py"))
+            if not os.path.exists(p):
+                p = os.path.abspath(os.path.join(os.path.dirname(__file__), "alerts.py"))
+            if os.path.exists(p):
                 spec = importlib.util.spec_from_file_location("trader_alerts_mod", p)
                 alerts_mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(alerts_mod)
                 alerts = alerts_mod
-            except Exception:
-                alerts = None
+        except Exception:
+            alerts = None
 
         if alerts:
             y_quotes, _ = alerts.get_quotes(missing[:60], source="yahoo", pause=0.05)
