@@ -41,6 +41,7 @@ budget_mod = load_skill("trader-budget", "size")
 flow_mod = load_skill("trader-flow", "flow")
 big_bull = load_skill("trader-flow", "big_bull")
 import trader.broker_data as broker_data
+from trader.broker_data import fetch_market_overview_quotes
 
 # ---------------------------------------------------------------- Universe Lookup
 @st.cache_data
@@ -169,7 +170,15 @@ def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_n
     tracked_symbols = list(market_caps.get("stocks", {}).keys())
 
     # Fetch Upstox Live / Fallback Quotes
-    quotes = broker_data.fetch_market_overview_quotes(tracked_symbols, is_sample_mode=is_sample_mode)
+    quotes = fetch_market_overview_quotes(tracked_symbols, is_sample_mode=is_sample_mode)
+
+    if not quotes and not is_sample_mode:
+        st.warning(
+            "⚠️ No live market quotes could be retrieved from Upstox or Yahoo Finance. "
+            "Please verify that `UPSTOX_ACCESS_TOKEN` is set in your environment, or switch to 'Sample Data (Offline Fixture)' in the sidebar."
+        )
+        return
+
     breadth = big_bull.compute_market_breadth(quotes)
     sec_perf = big_bull.compute_sector_performance(quotes, sector_registry, market_caps)
 

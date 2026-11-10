@@ -105,3 +105,4 @@ _FEED_MANAGER = UpstoxFeedManager()
 
 def get_feed_manager():
     return _FEED_MANAGER
+

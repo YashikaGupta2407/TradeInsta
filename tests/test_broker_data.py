@@ -195,6 +195,72 @@ class TestBrokerData(unittest.TestCase):
         self.assertNotIn(secret_token, out)
         self.assertIn("falling back to Yahoo", out)
 
+    def test_fetch_market_overview_quotes_sample_mode(self):
+        quotes = broker_data.fetch_market_overview_quotes(["RELIANCE", "TCS"], is_sample_mode=True)
+        self.assertIn("RELIANCE", quotes)
+        self.assertIn("TCS", quotes)
+        self.assertEqual(quotes["RELIANCE"]["source"], "sample")
+        self.assertGreater(quotes["RELIANCE"]["price"], 0)
+        self.assertIn("change_pct", quotes["RELIANCE"])
+
+    def test_fetch_market_overview_quotes_live_mode_upstox_mock(self):
+        os.environ["UPSTOX_ACCESS_TOKEN"] = "UPSTOX_VALID_TEST_TOKEN"
+        mock_upstox_resp = {
+            "status": "success",
+            "data": {
+                "NSE_EQ|INE002A01018": {
+                    "last_price": 1275.50,
+                    "volume": 7800000,
+                    "ohlc": {
+                        "open": 1255.00,
+                        "high": 1280.00,
+                        "low": 1250.00,
+                        "close": 1250.00
+                    },
+                    "last_trade_time": "2026-11-10 15:30:00"
+                }
+            }
+        }
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(mock_upstox_resp).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            quotes = broker_data.fetch_market_overview_quotes(["RELIANCE"], is_sample_mode=False)
+
+        self.assertIn("RELIANCE", quotes)
+        q = quotes["RELIANCE"]
+        self.assertEqual(q["price"], 1275.50)
+        self.assertEqual(q["prev_close"], 1250.00)
+        self.assertEqual(q["source"], "upstox")
+        self.assertEqual(q["volume"], 7800000)
+        # Expected percentage change: (1275.50 - 1250.00) / 1250.00 * 100 = 2.04%
+        expected_pct = round((1275.50 - 1250.00) / 1250.00 * 100, 2)
+        self.assertEqual(q["change_pct"], expected_pct)
+        self.assertEqual(q["net_change"], 25.50)
+
+    def test_invalid_instrument_key_handling(self):
+        os.environ["UPSTOX_ACCESS_TOKEN"] = "UPSTOX_VALID_TEST_TOKEN"
+        # Querying an unmappable symbol
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            res = broker_data.fetch_upstox_quotes(["TOTALLY_INVALID_SYMBOL_999"])
+        self.assertIsNone(res)
+        self.assertIn("symbol not found", buf.getvalue())
+
+    def test_upstox_timeout_and_live_mode_no_silent_sample_fallback(self):
+        os.environ["UPSTOX_ACCESS_TOKEN"] = "UPSTOX_VALID_TEST_TOKEN"
+        import urllib.error
+        timeout_err = urllib.error.URLError("timed out")
+
+        buf = io.StringIO()
+        with patch("urllib.request.urlopen", side_effect=timeout_err):
+            with redirect_stdout(buf):
+                quotes = broker_data.fetch_market_overview_quotes(["RELIANCE"], is_sample_mode=False)
+
+        # In live mode, if Upstox times out, it must NOT silently return sample data
+        self.assertEqual(quotes, {})
+
 
 if __name__ == "__main__":
     unittest.main()

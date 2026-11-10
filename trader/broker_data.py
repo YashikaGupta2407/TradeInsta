@@ -553,8 +553,9 @@ def fetch_upstox_quotes(syms, timeout=DEFAULT_TIMEOUT):
             ts_str = v.get("last_trade_time") or ""
             vol = int(v.get("volume") or 0)
             chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
-            out[orig_sym] = {
-                "symbol": orig_sym,
+            clean_s = orig_sym.replace(".NS", "")
+            q_obj = {
+                "symbol": clean_s,
                 "price": lp,
                 "prev_close": prev,
                 "open": float(ohlc.get("open") or lp),
@@ -566,6 +567,8 @@ def fetch_upstox_quotes(syms, timeout=DEFAULT_TIMEOUT):
                 "time": ts_str,
                 "source": "upstox"
             }
+            out[clean_s] = q_obj
+            out[orig_sym] = q_obj
     return out
 
 
@@ -671,8 +674,13 @@ def _generate_sample_quotes(symbols):
 def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEFAULT_TIMEOUT):
     """Fetch live or sample quotes for a batch of symbols with clear provenance.
 
-    Checks: Upstox -> Fyers -> Yahoo Finance -> Sample fallback.
-    Returns: dict of {sym: quote_dict}
+    - In sample mode (is_sample_mode=True): returns deterministic sample fixture quotes.
+    - In live mode (is_sample_mode=False): queries Upstox API v2 using official instrument keys,
+      or Fyers if configured, falling back cleanly to Yahoo Finance if broker credentials are not set.
+      Never silently substitutes sample data when live fetching fails.
+
+    Returns:
+        dict: {symbol: quote_dict}
     """
     if symbols is None:
         mc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_caps.json")
@@ -686,23 +694,27 @@ def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEF
         else:
             symbols = list(COMMON_UPSTOX_INSTRUMENTS.keys())
 
+    # 1. Sample Mode: explicitly requested by user or test fixture
     if is_sample_mode:
         return _generate_sample_quotes(symbols)
 
+    # 2. Live Mode: query real broker API (Upstox / Fyers)
     broker = active_broker()
     quotes = {}
     if broker:
-        chunk_size = 100  # Strictly within Upstox batch limit
+        # Batch in chunks of 100 symbols (strictly within Upstox batch limit of 500)
+        chunk_size = 100
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
             b_quotes = get_realtime_quotes(chunk, timeout=timeout)
             if b_quotes:
                 quotes.update(b_quotes)
 
-    # For symbols missing or if broker not available, query Yahoo fallback
-    missing = [s for s in symbols if s not in quotes]
-    if missing:
+    # For symbols missing from broker or if broker credentials are not set, query Yahoo fallback
+    missing = [s for s in symbols if s not in quotes and f"{s}.NS" not in quotes]
+    if missing and not broker:
         try:
+            import trader.broker_data
             from .agents.skills.trader_alerts import alerts
         except Exception:
             try:
@@ -722,7 +734,7 @@ def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEF
                 lp = float(yq.get("price") or 0.0)
                 prev = float(yq.get("prev_close") or lp)
                 chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
-                quotes[s_clean] = {
+                q_obj = {
                     "symbol": s_clean,
                     "price": lp,
                     "prev_close": prev,
@@ -735,9 +747,9 @@ def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, timeout=DEF
                     "time": yq.get("time") or "",
                     "source": "yahoo"
                 }
+                quotes[s_clean] = q_obj
+                quotes[f"{s_clean}.NS"] = q_obj
 
-    if not quotes:
-        quotes = _generate_sample_quotes(symbols)
-
+    # In Live Mode, return strictly what was legitimately retrieved (never silently fake sample data)
     return quotes
 
