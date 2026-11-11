@@ -68,6 +68,26 @@ def load_universe():
 SYM_TO_NAME, NAME_TO_SYM, UNIVERSE_ITEMS = load_universe()
 
 
+# ---------------------------------------------------------------- Cached Market Data Fetchers
+@st.cache_data(ttl=60)
+def fetch_cached_intraday_chart(symbol: str, interval: str = "5m"):
+    """Fetch same-day intraday chart with 60-second TTL to avoid Yahoo rate-limiting on page clicks."""
+    return entry_mod.get_chart(symbol, interval=interval)
+
+
+@st.cache_data(ttl=3600)
+def fetch_cached_history_chart(symbol: str, interval: str = "5m", day: str = None):
+    """Fetch historical day chart with longer 3600s TTL cache."""
+    return entry_mod.get_chart(symbol, interval=interval, day=day)
+
+
+@st.cache_data(ttl=60)
+def fetch_cached_market_overview(symbols: tuple, is_sample_mode: bool = False):
+    """Fetch market overview quotes with 60-second TTL to avoid Yahoo rate-limiting on page clicks."""
+    return fetch_market_overview_quotes(list(symbols), is_sample_mode=is_sample_mode)
+
+
+
 def resolve_symbol(query: str) -> str:
     """Resolve user input (company name or NSE ticker) to a clean .NS ticker."""
     if not query:
@@ -169,15 +189,52 @@ def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_n
     market_caps = big_bull.load_market_caps()
     tracked_symbols = list(market_caps.get("stocks", {}).keys())
 
-    # Fetch Upstox Live / Fallback Quotes
-    quotes = fetch_market_overview_quotes(tracked_symbols, is_sample_mode=is_sample_mode)
+    # Fetch Upstox Live / Fallback Quotes with 60s cache
+    quotes = {}
+    fetch_overview_err = None
+    try:
+        quotes = fetch_cached_market_overview(tuple(tracked_symbols), is_sample_mode=is_sample_mode)
+    except Exception as e:
+        fetch_overview_err = str(e)
 
-    if not quotes and not is_sample_mode:
-        st.warning(
-            "⚠️ No live market quotes could be retrieved from Upstox or Yahoo Finance. "
-            "Please verify that `UPSTOX_ACCESS_TOKEN` is set in your environment, or switch to 'Sample Data (Offline Fixture)' in the sidebar."
-        )
-        return
+    # Session state cache for resilient fallback on rate-limits
+    if "last_known_overview_quotes" not in st.session_state:
+        st.session_state["last_known_overview_quotes"] = {}
+    if "last_known_overview_ts" not in st.session_state:
+        st.session_state["last_known_overview_ts"] = ""
+
+    if quotes:
+        st.session_state["last_known_overview_quotes"] = quotes
+        st.session_state["last_known_overview_ts"] = datetime.datetime.now().strftime("%H:%M:%S IST")
+    elif not quotes and not is_sample_mode:
+        cached_quotes = st.session_state.get("last_known_overview_quotes")
+        cached_ts = st.session_state.get("last_known_overview_ts")
+        err_str = (fetch_overview_err or "").lower()
+
+        if any(term in err_str for term in ["429", "rate", "too many requests", "wait a minute"]):
+            if cached_quotes and cached_ts:
+                st.warning(f"⚠️ Yahoo is rate-limiting; retry in a few minutes. Showing last cached data from {cached_ts}.")
+                quotes = cached_quotes
+            else:
+                st.warning("⚠️ Yahoo is rate-limiting; retry in a few minutes.")
+                return
+        elif any(term in err_str for term in ["nodename", "servname", "could not connect", "network", "timed out", "dns"]):
+            if cached_quotes and cached_ts:
+                st.warning(f"⚠️ Network/DNS error while contacting market feed. Showing last cached data from {cached_ts}.")
+                quotes = cached_quotes
+            else:
+                st.warning("⚠️ Network/DNS error while contacting market feed. Please check your internet connection or retry shortly.")
+                return
+        else:
+            if cached_quotes and cached_ts:
+                st.info(f"Showing last cached market overview data from {cached_ts}.")
+                quotes = cached_quotes
+            else:
+                st.warning(
+                    "⚠️ No live market quotes could be retrieved from Upstox or Yahoo Finance. "
+                    "Please verify that `UPSTOX_ACCESS_TOKEN` is set in your environment, or switch to 'Sample Data (Offline Fixture)' in the sidebar."
+                )
+                return
 
     breadth = big_bull.compute_market_breadth(quotes)
     sec_perf = big_bull.compute_sector_performance(quotes, sector_registry, market_caps)
@@ -784,10 +841,52 @@ def main():
         except Exception as e:
             fetch_error = f"Could not load sample fixture: {e}"
     else:
-        try:
-            chart = entry_mod.get_chart(resolved_symbol, interval="5m")
-        except Exception as e:
-            fetch_error = str(e)
+        # 1. Prefer Upstox for candles when token is set
+        if active_b == "upstox":
+            try:
+                chart = broker_data.get_realtime_candles(resolved_symbol, interval="5m")
+            except Exception:
+                chart = None
+
+        # 2. Fall back to cached Yahoo only if broker is unavailable or returned None
+        if not chart:
+            try:
+                chart = fetch_cached_intraday_chart(resolved_symbol, interval="5m")
+            except Exception as e:
+                fetch_error = str(e)
+
+    # Session state cache for resilient fallback on 429 or network errors
+    if "last_known_charts" not in st.session_state:
+        st.session_state["last_known_charts"] = {}
+    if "last_known_timestamps" not in st.session_state:
+        st.session_state["last_known_timestamps"] = {}
+
+    rate_limit_notice = None
+    network_notice = None
+
+    if chart and not fetch_error:
+        # Cache successful live/sample chart
+        st.session_state["last_known_charts"][resolved_symbol] = chart
+        st.session_state["last_known_timestamps"][resolved_symbol] = datetime.datetime.now().strftime("%H:%M:%S IST")
+    elif fetch_error:
+        err_lower = fetch_error.lower()
+        cached_chart = st.session_state["last_known_charts"].get(resolved_symbol)
+        cached_ts = st.session_state["last_known_timestamps"].get(resolved_symbol, "")
+
+        if any(term in err_lower for term in ["429", "rate", "too many requests", "wait a minute"]):
+            if cached_chart and cached_ts:
+                rate_limit_notice = f"⚠️ Yahoo is rate-limiting; retry in a few minutes. Showing last cached data from {cached_ts}."
+                chart = cached_chart
+                fetch_error = None
+            else:
+                rate_limit_notice = "⚠️ Yahoo is rate-limiting; retry in a few minutes."
+        elif any(term in err_lower for term in ["nodename", "servname", "could not connect", "network error", "dns", "timed out", "temporary failure"]):
+            if cached_chart and cached_ts:
+                network_notice = f"⚠️ Network/DNS error while contacting Yahoo Finance. Showing last cached data from {cached_ts}."
+                chart = cached_chart
+                fetch_error = None
+            else:
+                network_notice = "⚠️ Network/DNS error while contacting Yahoo Finance. Please check your internet connection or retry shortly."
 
     # Determine data source & bar age
     bars = (chart.get("bars") if chart else []) or []
@@ -828,6 +927,11 @@ def main():
         unsafe_allow_html=True
     )
 
+    if rate_limit_notice:
+        st.warning(rate_limit_notice)
+    elif network_notice:
+        st.warning(network_notice)
+
     # Note: Paper trading, not advice
     st.markdown(
         """
@@ -846,7 +950,8 @@ def main():
 
     # ---------------------------------------------------------------- Data Evaluation
     if fetch_error or not chart:
-        st.error(f"⚠️ Could not load market data for {resolved_symbol}: {fetch_error or 'no data available'}")
+        if not rate_limit_notice and not network_notice:
+            st.error(f"⚠️ Could not load market data for {resolved_symbol}: {fetch_error or 'no data available'}")
         return
 
     if not bars:

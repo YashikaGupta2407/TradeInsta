@@ -741,27 +741,30 @@ def fetch_market_overview_quotes(symbols, is_sample_mode=False):
             alerts = None
 
         if alerts:
-            y_quotes, _ = alerts.get_quotes(missing[:60], source="yahoo", pause=0.05)
-            for s, yq in y_quotes.items():
-                s_clean = s.replace(".NS", "").upper()
-                lp = float(yq.get("price") or 0.0)
-                prev = float(yq.get("prev_close") or lp)
-                chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
-                q_obj = {
-                    "symbol": s_clean,
-                    "price": lp,
-                    "prev_close": prev,
-                    "open": yq.get("open"),
-                    "high": yq.get("high"),
-                    "low": yq.get("low"),
-                    "volume": 0,
-                    "change_pct": chg_pct,
-                    "net_change": round(lp - prev, 2),
-                    "time": yq.get("time") or "",
-                    "source": "yahoo"
-                }
-                quotes[s_clean] = q_obj
-                quotes[f"{s_clean}.NS"] = q_obj
+            try:
+                y_quotes, _ = alerts.get_quotes(missing[:60], source="yahoo", pause=0.05)
+                for s, yq in y_quotes.items():
+                    s_clean = s.replace(".NS", "").upper()
+                    lp = float(yq.get("price") or 0.0)
+                    prev = float(yq.get("prev_close") or lp)
+                    chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
+                    q_obj = {
+                        "symbol": s_clean,
+                        "price": lp,
+                        "prev_close": prev,
+                        "open": yq.get("open"),
+                        "high": yq.get("high"),
+                        "low": yq.get("low"),
+                        "volume": 0,
+                        "change_pct": chg_pct,
+                        "net_change": round(lp - prev, 2),
+                        "time": yq.get("time") or "",
+                        "source": "yahoo"
+                    }
+                    quotes[s_clean] = q_obj
+                    quotes[f"{s_clean}.NS"] = q_obj
+            except Exception as e:
+                _log_fallback("Yahoo fallback error: %s" % e, syms=missing[:60], broker="yahoo")
 
     # In Live Mode, return strictly what was legitimately retrieved (never silently fake sample data)
     return quotes

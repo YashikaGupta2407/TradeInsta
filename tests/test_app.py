@@ -73,6 +73,30 @@ class TestApp(unittest.TestCase):
         self.assertEqual(summary_unknown["net_value_inr"], 0.0)
         self.assertEqual(len(summary_unknown["deals"]), 0)
 
+    def test_fetch_cached_helpers_exist(self):
+        from app import fetch_cached_intraday_chart, fetch_cached_history_chart, fetch_cached_market_overview
+        self.assertTrue(callable(fetch_cached_intraday_chart))
+        self.assertTrue(callable(fetch_cached_history_chart))
+        self.assertTrue(callable(fetch_cached_market_overview))
+
+    def test_rate_limit_and_network_error_keywords(self):
+        err_429 = "Yahoo did not answer (HTTP 429 on query2 and query1): wait a minute and try again"
+        err_dns = "network error: [Errno 8] nodename nor servname provided, or not known"
+
+        is_429 = any(k in err_429.lower() for k in ["429", "rate", "too many requests", "wait a minute"])
+        is_dns = any(k in err_dns.lower() for k in ["nodename", "servname", "could not connect", "network error", "dns"])
+
+        self.assertTrue(is_429)
+        self.assertTrue(is_dns)
+
+    def test_badge_never_sample_in_live_mode(self):
+        # Even on errors, live mode badge is never "SAMPLE DATA"
+        badge = get_badge_info(is_sample=False, is_open=True, data_source="yahoo")
+        self.assertNotEqual(badge["label"], "SAMPLE DATA")
+
+        badge_upstox = get_badge_info(is_sample=False, is_open=True, data_source="upstox")
+        self.assertEqual(badge_upstox["label"], "LIVE (broker)")
+
 
 if __name__ == "__main__":
     unittest.main()

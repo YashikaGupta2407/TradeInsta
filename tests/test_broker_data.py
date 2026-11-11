@@ -261,6 +261,17 @@ class TestBrokerData(unittest.TestCase):
         # In live mode, if Upstox times out, it must NOT silently return sample data
         self.assertEqual(quotes, {})
 
+    def test_yahoo_fallback_handles_429_and_network_error_gracefully(self):
+        # When broker is not set, fetch_market_overview_quotes falls back to Yahoo alerts
+        buf = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("urllib.request.urlopen", side_effect=Exception("HTTP 429: Too Many Requests")):
+                with redirect_stdout(buf):
+                    quotes = broker_data.fetch_market_overview_quotes(["RELIANCE"], is_sample_mode=False)
+        self.assertEqual(quotes, {})
+        # Never crashes, logs fallback
+        self.assertIn("falling back to Yahoo", buf.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
