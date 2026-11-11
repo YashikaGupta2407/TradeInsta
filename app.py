@@ -42,6 +42,8 @@ flow_mod = load_skill("trader-flow", "flow")
 big_bull = load_skill("trader-flow", "big_bull")
 import trader.broker_data as broker_data
 from trader.broker_data import fetch_market_overview_quotes
+from trader.analyzer import analyze_symbol, load_signal_log
+
 
 # ---------------------------------------------------------------- Universe Lookup
 @st.cache_data
@@ -119,13 +121,15 @@ def resolve_symbol(query: str) -> str:
     return ns_key
 
 
-def get_badge_info(is_sample: bool, is_open: bool, data_source: str, bar_age: str = "", session_reason: str = "") -> dict:
+def get_badge_info(is_sample: bool, is_open: bool, data_source: str, bar_age: str = "", session_reason: str = "", holiday_name: str = None, is_pre_open: bool = False) -> dict:
     """Determine top-of-page badge state, color, and label.
 
     Badge labels:
     - 'LIVE (broker)': Broker real-time intraday stream during market hours
     - 'DELAYED (Yahoo)': Yahoo Finance ~15-minute delayed stream during market hours
-    - 'LAST SESSION (market closed)': Outside market hours or holiday (displaying last session data)
+    - 'LAST SESSION': Outside market hours or weekend (displaying last session data)
+    - 'HOLIDAY': NSE Trading Holiday
+    - 'MARKET NOT OPEN': Pre-market window before 09:15 IST
     - 'SAMPLE DATA': Offline simulated test fixtures / demo data
     """
     if is_sample:
@@ -134,10 +138,22 @@ def get_badge_info(is_sample: bool, is_open: bool, data_source: str, bar_age: st
             "bg": "#7c3aed",  # Purple
             "detail": f"Offline test fixture / simulated candles • Source: {data_source.capitalize()}"
         }
+    if holiday_name:
+        return {
+            "label": "HOLIDAY",
+            "bg": "#b45309",  # Amber/Brown
+            "detail": f"NSE Holiday: {holiday_name} • Market Closed • Source: {data_source.capitalize()}"
+        }
+    if is_pre_open:
+        return {
+            "label": "MARKET NOT OPEN",
+            "bg": "#d97706",  # Dark Amber
+            "detail": f"Pre-market window (opens at 09:15 IST) • Displaying last session • Source: {data_source.capitalize()}"
+        }
     if not is_open:
         reason_text = f" ({session_reason})" if session_reason else ""
         return {
-            "label": "LAST SESSION (market closed)",
+            "label": "LAST SESSION",
             "bg": "#475569",  # Slate Grey
             "detail": f"Market closed{reason_text} • Displaying last session • Source: {data_source.capitalize()} • Age: {bar_age}"
         }
@@ -748,6 +764,116 @@ def render_big_bull_view(is_sample_mode: bool = False, deals=None, data_source_n
             st.dataframe(pd.DataFrame(raw_tbl), use_container_width=True, hide_index=True)
 
 
+# ---------------------------------------------------------------- Analysis Card Renderer
+def render_analysis_card(analysis: dict):
+    """Render the complete 9-step analysis card with timestamps and provenance."""
+    steps = analysis.get("steps", {})
+    s1 = steps.get("data_check", {})
+    s2 = steps.get("opening_range", {})
+    s3 = steps.get("entry_status", {})
+    s4 = steps.get("levels", {})
+    s5 = steps.get("size_and_charges", {})
+    s6 = steps.get("risk_check", {})
+    s7 = steps.get("historical_odds", {})
+    s8 = steps.get("context", {})
+    s9 = steps.get("summary", {})
+
+    st.markdown("---")
+    st.markdown(f"### ⚡ Analysis as of `{analysis.get('now_ist', 'Now')}`")
+
+    # Current Price vs Completed Bars Comparison
+    c_p1, c_p2 = st.columns(2)
+    with c_p1:
+        st.markdown(
+            f"""
+            <div style="background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-bottom: 8px;">
+                <div style="font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase;">1. Current Price (LTP)</div>
+                <div style="font-size: 26px; font-weight: 700; color: #0f172a; margin: 4px 0;">₹{s1.get('current_price') or 0:,.2f}</div>
+                <div style="font-size: 12px; color: #475569;">Time: {s1.get('current_price_time', 'N/A')} • Feed: {str(s1.get('current_price_source', 'Broker')).capitalize()}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    with c_p2:
+        st.markdown(
+            f"""
+            <div style="background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-bottom: 8px;">
+                <div style="font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase;">2. Last Completed 5-Minute Bar</div>
+                <div style="font-size: 26px; font-weight: 700; color: #0f172a; margin: 4px 0;">₹{s1.get('last_bar_close') or 0:,.2f}</div>
+                <div style="font-size: 12px; color: #475569;">Close Time: {s1.get('last_bar_time', 'N/A')} • Bar Age: {s1.get('bar_age', 'N/A')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.caption("ℹ️ *The entry rule needs completed bars. The current price shows where the stock is right now.*")
+
+    # 9-Step Summary sentences
+    st.markdown(
+        f"""
+        <div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 14px 18px; margin: 12px 0;">
+            <h4 style="margin: 0 0 8px 0; color: #1e3a8a; font-size: 16px;">📋 Current Rules Summary</h4>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    for s in s9.get("sentences", []):
+        st.markdown(f"- {s}")
+
+    # Expandable Full 9-Step Detail Breakdown
+    with st.expander("🔍 View Full 9-Step Verification Details", expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**Step 1: Data Check** (`{s1.get('timestamp')}`)")
+            st.write(f"- Source: `{s1.get('source')}` (Upstox Token: `{s1.get('upstox_token_status')}`)")
+            if s1.get("fallback_reason"):
+                st.write(f"- Fallback: {s1.get('fallback_reason')}")
+            st.write(f"- Market State: `{s1.get('market_state')}`" + (f" ({s1.get('holiday_name')})" if s1.get("holiday_name") else ""))
+
+            st.markdown(f"**Step 2: Opening Range** (`{s2.get('timestamp')}`)")
+            st.write(f"- High: `₹{s2.get('high') or 0:.2f}`, Low: `₹{s2.get('low') or 0:.2f}` ({s2.get('bars_used')}/3 bars)")
+            st.write(f"- Status: {s2.get('phase_note')}")
+
+            st.markdown(f"**Step 3: Entry Status** (`{s3.get('timestamp')}`)")
+            st.write(f"- Signal: `{str(s3.get('signal')).upper()}`")
+            if s3.get("trigger"):
+                st.write(f"- Triggered: ₹{s3['trigger'].get('price', 0):.2f} at {s3['trigger'].get('time')}")
+            if s3.get("late_entry_flag"):
+                st.warning(f"⚠️ {s3.get('late_entry_note')}")
+            if s3.get("failed_breakout"):
+                st.error(f"❌ {s3.get('failed_reason')}")
+
+            st.markdown(f"**Step 4: Levels** (`{s4.get('timestamp')}`)")
+            if s4.get("entry_level"):
+                st.write(f"- Entry Level: `₹{s4.get('entry_level'):.2f}` | Stop: `₹{s4.get('stop_level'):.2f}` | Target: `₹{s4.get('target_level'):.2f}`")
+                st.write(f"- Reward:Risk: `{s4.get('reward_risk'):.1f}R` | Tick size: `₹{s4.get('tick_size'):.2f}`")
+            else:
+                st.write(f"- {s4.get('note')}")
+
+        with c2:
+            st.markdown(f"**Step 5: Size & Statutory Charges** (`{s5.get('timestamp')}`)")
+            st.write(f"- Sized Quantity: `{s5.get('quantity')} shares` (Value: ₹{s5.get('position_value', 0):,.2f})")
+            st.write(f"- Round-trip Charges: `₹{s5.get('total_charges', 0):.2f}` (Brokerage, STT, turnover, GST, stamp duty)")
+
+            st.markdown(f"**Step 6: Risk Check** (`{s6.get('timestamp')}`)")
+            if s6.get("verdict") == "PASS":
+                st.success(f"PASS: {s6.get('reason')}")
+            else:
+                st.error(f"BLOCK: {s6.get('reason')}")
+
+            st.markdown(f"**Step 7: Historical Odds (Time Machine)** (`{s7.get('timestamp')}`)")
+            st.write(f"- Win Rate: `{s7.get('win_rate')}%` across `{s7.get('samples')}` sessions")
+            st.write(f"- Edge Verdict: `{s7.get('verdict')}`")
+
+            st.markdown(f"**Step 8: Context (Read-Only)** (`{s8.get('timestamp')}`)")
+            st.write(f"- Volume vs 20d Avg: `{s8.get('volume_vs_20d_label')}`")
+            st.write(f"- Institutional Flow: `{s8.get('flow_summary', {}).get('total_deals', 0)} deals` ({s8.get('flow_label')})")
+            if s8.get("headlines"):
+                for h in s8["headlines"][:2]:
+                    st.write(f"- News: [{h.get('title')}]({h.get('link')})")
+    st.markdown("---")
+
+
 # ---------------------------------------------------------------- Main Entry Point
 def main():
     st.set_page_config(
@@ -943,16 +1069,44 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Header title
-    st.title(f"{resolved_symbol}")
-    if company_name and company_name != resolved_symbol:
-        st.subheader(company_name)
+    # ---------------------------------------------------------------- Setup & Analysis Tabs
+    tab_setup, tab_log = st.tabs(["⚡ Trade Setup & Live Analysis", "📜 Signal Log"])
 
-    # ---------------------------------------------------------------- Data Evaluation
-    if fetch_error or not chart:
-        if not rate_limit_notice and not network_notice:
-            st.error(f"⚠️ Could not load market data for {resolved_symbol}: {fetch_error or 'no data available'}")
-        return
+    with tab_setup:
+        # Header title and One-Click 'Analyze now' Action
+        c_info, c_btn = st.columns([3, 1])
+        with c_info:
+            st.title(f"{resolved_symbol}")
+            if company_name and company_name != resolved_symbol:
+                st.subheader(company_name)
+        with c_btn:
+            st.write("")
+            run_analysis = st.button("⚡ Analyze now", type="primary", use_container_width=True, help="Compute instant 9-step trade analysis as of the current minute.")
+
+        if run_analysis:
+            prog_bar = st.progress(0, text="Initializing 9-step analysis...")
+            def _prog_cb(step_num, step_name, status, detail=""):
+                pct = int((step_num / 9.0) * 100)
+                prog_bar.progress(pct, text=f"Step {step_num}/9: {step_name} • {detail}")
+
+            res_analysis = analyze_symbol(
+                resolved_symbol,
+                is_sample_mode=is_sample_mode,
+                config=config,
+                progress_callback=_prog_cb
+            )
+            prog_bar.empty()
+            st.session_state[f"last_analysis_{resolved_symbol}"] = res_analysis
+
+        curr_analysis = st.session_state.get(f"last_analysis_{resolved_symbol}")
+        if curr_analysis:
+            render_analysis_card(curr_analysis)
+
+        # ---------------------------------------------------------------- Data Evaluation
+        if fetch_error or not chart:
+            if not rate_limit_notice and not network_notice:
+                st.error(f"⚠️ Could not load market data for {resolved_symbol}: {fetch_error or 'no data available'}")
+            return
 
     if not bars:
         st.warning(f"No 5-minute bars returned for {resolved_symbol} today.")
@@ -1305,6 +1459,23 @@ def main():
                 st.dataframe(pd.DataFrame(top_rows), use_container_width=True, hide_index=True)
             else:
                 st.write("No deal files currently loaded in `trader/flow/`. Place downloaded CSV files there to see market-wide deal rankings.")
+
+    with tab_log:
+        st.markdown("### 📜 Signal Log")
+        st.caption("Historical record of all one-click analyses run in TradeInsta. Saved to `trader/signal_log.csv`.")
+        records = load_signal_log(limit=100)
+        if not records:
+            st.info("No analyses recorded yet. Click 'Analyze now' on any stock to record an entry.")
+        else:
+            df_log = pd.DataFrame(records)
+            st.dataframe(df_log, use_container_width=True, hide_index=True)
+            csv_data = df_log.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Signal Log (CSV)",
+                data=csv_data,
+                file_name="signal_log.csv",
+                mime="text/csv"
+            )
 
     # ---------------------------------------------------------------- Footer Note
     st.markdown(

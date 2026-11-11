@@ -33,7 +33,14 @@ class TestApp(unittest.TestCase):
 
     def test_badge_market_closed(self):
         info = get_badge_info(is_sample=False, is_open=False, data_source="yahoo", session_reason="after the close")
-        self.assertEqual(info["label"], "LAST SESSION (market closed)")
+        self.assertIn("LAST SESSION", info["label"])
+
+    def test_badge_holiday_and_market_not_open(self):
+        info_hol = get_badge_info(is_sample=False, is_open=False, data_source="yahoo", holiday_name="Diwali")
+        self.assertEqual(info_hol["label"], "HOLIDAY")
+
+        info_pre = get_badge_info(is_sample=False, is_open=False, data_source="yahoo", is_pre_open=True)
+        self.assertEqual(info_pre["label"], "MARKET NOT OPEN")
 
     def test_badge_live_broker(self):
         info_upstox = get_badge_info(is_sample=False, is_open=True, data_source="upstox", bar_age="1m")
