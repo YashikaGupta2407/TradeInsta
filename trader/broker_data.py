@@ -65,6 +65,32 @@ __all__ = [
 
 
 
+def _load_env_file():
+    """Load environment variables from a local .env file if not already set."""
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), ".env")),
+        os.path.abspath(".env"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip().strip("'\"")
+                            if k and v and k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+
+_load_env_file()
+
+
 def active_broker():
     """Detect which broker credentials are set in environment variables.
     Returns 'fyers', 'upstox', or None. Never returns or logs token values.
