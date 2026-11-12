@@ -1,0 +1,786 @@
+/* ==========================================================================
+   TradeInsta Terminal Theme & Design System
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-primary: #0E1116;
+  --bg-panel: #161B22;
+  --bg-sidebar: #12161C;
+  --border-subtle: #232A33;
+  --border-focus: #5EA8FF;
+  
+  --text-main: #E6EAF0;
+  --text-muted: #98A2B3;
+  
+  --accent-blue: #5EA8FF;
+  --gain-green: #3DD68C;
+  --loss-red: #FF6B6B;
+  --warning-amber: #F2B84B;
+
+  --font-text: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --radius-panel: 12px;
+  --radius-chip: 999px;
+  --radius-sm: 6px;
+}
+
+/* Global resets & typography */
+html, body, [data-testid="stAppViewContainer"] {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-main) !important;
+  font-family: var(--font-text) !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular mono figures for prices, timestamps, numbers */
+.mono, .mono-text, code, [data-testid="stMetricValue"], [data-testid="stMetricDelta"] {
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* Streamlit Header & Sidebar Overrides */
+[data-testid="stHeader"] {
+  background-color: var(--bg-primary) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+[data-testid="stSidebar"] {
+  background-color: var(--bg-sidebar) !important;
+  border-right: 1px solid var(--border-subtle) !important;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+  background-color: var(--bg-sidebar) !important;
+}
+
+/* Sidebar Section Headers */
+.sidebar-nav-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 14px 10px 4px 10px;
+  user-select: none;
+}
+
+/* Sidebar Nav Buttons */
+.stSidebar div[data-testid="stButton"] > button {
+  display: flex !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  width: 100% !important;
+  padding: 8px 14px !important;
+  margin-bottom: 2px !important;
+  font-family: var(--font-text) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--text-muted) !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-left: 3px solid transparent !important;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0 !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+.stSidebar div[data-testid="stButton"] > button:hover {
+  color: var(--text-main) !important;
+  background-color: rgba(94, 168, 255, 0.06) !important;
+}
+
+/* Active Nav Item */
+.stSidebar div[data-testid="stButton"] > button[data-testid="baseButton-primary"],
+.stSidebar div[data-testid="stButton"] > button[kind="primary"] {
+  color: var(--text-main) !important;
+  background-color: var(--bg-panel) !important;
+  border-left: 3px solid var(--accent-blue) !important;
+  font-weight: 600 !important;
+}
+
+/* Terminal Panels */
+.terminal-panel {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+/* Terminal Chips */
+.terminal-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-chip);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background-color: rgba(35, 42, 51, 0.6);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  transition: all 0.2s ease;
+}
+
+.terminal-chip.active {
+  background-color: rgba(94, 168, 255, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.terminal-chip.success {
+  background-color: rgba(61, 214, 140, 0.15);
+  border-color: var(--gain-green);
+  color: var(--gain-green);
+}
+
+.terminal-chip.warning {
+  background-color: rgba(242, 184, 75, 0.15);
+  border-color: var(--warning-amber);
+  color: var(--warning-amber);
+}
+
+/* Pulsing Status Dot */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+  position: relative;
+}
+
+.status-dot.green {
+  background-color: var(--gain-green);
+}
+
+.status-dot.green.pulsing {
+  animation: pulse-ring 1.6s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+}
+
+.status-dot.amber {
+  background-color: var(--warning-amber);
+}
+
+.status-dot.red {
+  background-color: var(--loss-red);
+}
+
+.status-dot.grey {
+  background-color: var(--text-muted);
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(61, 214, 140, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(61, 214, 140, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(61, 214, 140, 0);
+  }
+}
+
+/* Sidebar Status Box */
+.sidebar-status-box {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 12px 14px;
+  margin-top: 20px;
+  font-size: 12px;
+}
+
+.sidebar-status-line {
+  display: flex;
+  align-items: center;
+  color: var(--text-main);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.sidebar-status-sub {
+  color: var(--text-muted);
+  font-size: 11px;
+  padding-left: 16px;
+}
+
+/* Trust Strip (Top of Analysis) */
+.trust-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 8px 16px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.trust-strip-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.trust-source {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.trust-divider {
+  color: var(--border-subtle);
+  user-select: none;
+}
+
+.sample-chip {
+  background-color: rgba(147, 51, 234, 0.15) !important;
+  border: 1px solid rgba(192, 132, 252, 0.4) !important;
+  color: #C084FC !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 2px 8px !important;
+  letter-spacing: 0.05em !important;
+}
+
+.trust-badge {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: var(--radius-chip);
+}
+
+.trust-badge.live {
+  background-color: rgba(61, 214, 140, 0.15);
+  color: var(--gain-green);
+  border: 1px solid rgba(61, 214, 140, 0.4);
+}
+
+.trust-badge.delayed {
+  background-color: rgba(242, 184, 75, 0.15);
+  color: var(--warning-amber);
+  border: 1px solid rgba(242, 184, 75, 0.4);
+}
+
+.trust-badge.closed {
+  background-color: rgba(152, 162, 179, 0.15);
+  color: var(--text-muted);
+  border: 1px solid rgba(152, 162, 179, 0.3);
+}
+
+.trust-badge.sample {
+  background-color: rgba(147, 51, 234, 0.2);
+  color: #C084FC;
+  border: 1px solid rgba(147, 51, 234, 0.4);
+}
+
+/* ==========================================================================
+   Phase 3: Day Timeline Panel
+   ========================================================================== */
+.timeline-panel-wrap {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 16px 20px 20px 20px;
+  margin-bottom: 20px;
+}
+
+.timeline-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.timeline-track-container {
+  position: relative;
+  width: 100%;
+  margin: 28px 0 20px 0;
+}
+
+.timeline-track {
+  width: 100%;
+  height: 8px;
+  background-color: var(--border-subtle);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.timeline-fill {
+  height: 100%;
+  background-color: var(--accent-blue);
+  border-radius: 4px;
+  width: var(--timeline-width, 0%);
+  animation: timeline-grow 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes timeline-grow {
+  from { width: 0%; }
+  to { width: var(--timeline-width, 0%); }
+}
+
+.timeline-marker-now {
+  position: absolute;
+  top: -24px;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  white-space: nowrap;
+}
+
+.timeline-marker-breakout {
+  position: absolute;
+  top: -24px;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gain-green);
+  white-space: nowrap;
+}
+
+.timeline-labels-bottom {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  margin-top: 6px;
+}
+
+.timeline-label-item {
+  position: absolute;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Phase 3: Price Ladder Panel
+   ========================================================================== */
+.ladder-panel-wrap {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 16px 20px;
+  height: 100%;
+  min-height: 420px;
+}
+
+.ladder-canvas {
+  position: relative;
+  width: 100%;
+  height: 340px;
+  margin: 16px 0;
+}
+
+.ladder-rail {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  background-color: var(--border-subtle);
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+
+.ladder-band {
+  position: absolute;
+  left: 50%;
+  width: 60px;
+  transform: translateX(-50%);
+  background-color: rgba(94, 168, 255, 0.12);
+  border-left: 2px solid var(--accent-blue);
+  border-right: 2px solid var(--accent-blue);
+  border-radius: 2px;
+}
+
+.ladder-line {
+  position: absolute;
+  left: 50%;
+  width: 70px;
+  transform: translateX(-50%);
+  height: 1px;
+}
+
+.ladder-line.target {
+  background-color: var(--gain-green);
+}
+
+.ladder-line.entry {
+  background-color: var(--accent-blue);
+}
+
+.ladder-line.stop {
+  background-color: var(--loss-red);
+}
+
+.ladder-line.range-low {
+  background-color: var(--text-muted);
+}
+
+.ladder-label-left {
+  position: absolute;
+  right: calc(50% + 40px);
+  transform: translateY(-50%);
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ladder-price-marker {
+  position: absolute;
+  left: calc(50% - 7px);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--accent-blue);
+  box-shadow: 0 0 10px rgba(94, 168, 255, 0.9), 0 0 20px rgba(94, 168, 255, 0.4);
+  transform: translateY(-50%);
+  transition: top 0.6s ease-out;
+  z-index: 5;
+}
+
+.ladder-price-label-right {
+  position: absolute;
+  left: calc(50% + 40px);
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  white-space: nowrap;
+  background-color: rgba(14, 17, 22, 0.85);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--accent-blue);
+  transition: top 0.6s ease-out;
+  z-index: 5;
+}
+
+/* ==========================================================================
+   Phase 3: Past Odds Panel & 100-Dot Grid
+   ========================================================================== */
+.odds-panel-wrap {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.odds-grid-100 {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 5px;
+  margin: 14px 0 16px 0;
+  padding: 4px;
+  background-color: rgba(14, 17, 22, 0.6);
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.odds-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: dot-pop 0.3s ease-out forwards;
+}
+
+.odds-dot.dot-target {
+  background-color: var(--gain-green);
+  box-shadow: 0 0 4px rgba(61, 214, 140, 0.4);
+}
+
+.odds-dot.dot-stop {
+  background-color: var(--loss-red);
+}
+
+.odds-dot.dot-neither {
+  background-color: #475569;
+}
+
+@keyframes dot-pop {
+  0% { opacity: 0; transform: scale(0.2); }
+  70% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.odds-legend {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+   Phase 3: Bottom Row Step Chips & Summary
+   ========================================================================== */
+.step-chips-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  margin: 20px 0 16px 0;
+}
+
+.step-chips-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.step-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-chip);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background-color: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.step-chip.completed {
+  background-color: rgba(61, 214, 140, 0.12);
+  border-color: rgba(61, 214, 140, 0.5);
+  color: var(--gain-green);
+}
+
+.step-chip.warning {
+  background-color: rgba(242, 184, 75, 0.12);
+  border-color: rgba(242, 184, 75, 0.5);
+  color: var(--warning-amber);
+}
+
+.step-chip-legal {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Phase 5: BIG BULL Components (Mood Panel, Breadth Bar, Radar Cards)
+   ========================================================================== */
+.mood-panel-wrap {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.mood-summary-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.mood-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.mood-word {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 12px;
+  border-radius: var(--radius-chip);
+}
+
+.mood-word.bullish {
+  background-color: rgba(61, 214, 140, 0.15);
+  color: var(--gain-green);
+  border: 1px solid rgba(61, 214, 140, 0.4);
+}
+
+.mood-word.bearish {
+  background-color: rgba(255, 107, 107, 0.15);
+  color: var(--loss-red);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+.mood-word.neutral {
+  background-color: rgba(152, 162, 179, 0.15);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.mood-bar-container {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background-color: var(--border-subtle);
+  margin: 8px 0;
+}
+
+.mood-bar-adv {
+  background-color: var(--gain-green);
+  height: 100%;
+  animation: mood-bar-grow 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.mood-bar-dec {
+  background-color: var(--loss-red);
+  height: 100%;
+  animation: mood-bar-grow 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes mood-bar-grow {
+  from { width: 0%; }
+  to { width: var(--target-width); }
+}
+
+.mood-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Radar Cards */
+.radar-card-slide {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  animation: card-slide-in 0.4s ease-out forwards;
+}
+
+@keyframes card-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.radar-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: var(--radius-chip);
+}
+
+.radar-badge.buying {
+  background-color: rgba(61, 214, 140, 0.15);
+  color: var(--gain-green);
+  border: 1px solid rgba(61, 214, 140, 0.4);
+}
+
+.radar-badge.selling {
+  background-color: rgba(255, 107, 107, 0.15);
+  color: var(--loss-red);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+.radar-badge.volume {
+  background-color: rgba(94, 168, 255, 0.15);
+  color: var(--accent-blue);
+  border: 1px solid rgba(94, 168, 255, 0.4);
+}
+
+.radar-badge.buyers {
+  background-color: rgba(242, 184, 75, 0.15);
+  color: var(--warning-amber);
+  border: 1px solid rgba(242, 184, 75, 0.4);
+}
+
+/* Metrics & Card styling */
+[data-testid="stMetric"] {
+  background-color: var(--bg-panel) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-panel) !important;
+  padding: 14px 16px !important;
+}
+
+[data-testid="stMetricLabel"] {
+  color: var(--text-muted) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+
+[data-testid="stMetricValue"] {
+  color: var(--text-main) !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+}
+
+/* Dataframe styling */
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+}
+
+/* Inputs & Selectboxes */
+[data-testid="stTextInput"] input, [data-testid="stSelectbox"] div[data-baseweb="select"] {
+  background-color: var(--bg-panel) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--text-main) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+/* Clean divider */
+hr {
+  border-color: var(--border-subtle) !important;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

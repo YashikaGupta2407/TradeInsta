@@ -153,7 +153,8 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
         dict: Complete structured analysis report with all 9 steps, timestamps, and verdicts.
     """
     now_ist = parse_ist_now(now)
-    now_utc = now_ist.astimezone(UTC_TZ).replace(tzinfo=None)
+    now_utc_aware = now_ist.astimezone(UTC_TZ)
+    now_utc = now_utc_aware.replace(tzinfo=None)
     now_time_str = now_ist.strftime("%H:%M:%S IST")
     now_date_str = now_ist.strftime("%Y-%m-%d")
 
@@ -300,7 +301,7 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
 
     # Filter bars strictly to COMPLETED bars as of `now`
     # A bar starting at epoch t closes at end_ts = t + 300 (for 5m bars)
-    now_ts = int(now_utc.timestamp())
+    now_ts = int(now_ist.timestamp())
     step_sec = 300
     completed_bars = []
     for b in raw_bars:
@@ -379,6 +380,8 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
         "last_bar_time": last_b_time_str,
         "last_bar_close": last_b_close,
         "bar_age": bar_age_str,
+        "chart": chart,
+        "bars": raw_bars,
         "badge": {"label": badge_label, "bg": badge_bg},
         "explanation": "The entry rule needs completed bars. The current price shows where the stock is right now."
     }
@@ -892,6 +895,8 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
         "market_state": market_state,
         "day_phase": day_phase,
         "steps": steps,
+        "chart": chart,
+        "bars": raw_bars,
         "errors": errors,
         "disclaimer": "Paper trading, not advice. Levels come from fixed rules and past data and do not predict the price."
     }

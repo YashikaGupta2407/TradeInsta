@@ -142,7 +142,10 @@ def format_bar_age(timestamp_sec, now_utc=None, source="yahoo"):
     elif isinstance(now_utc, (int, float)):
         now_sec = int(now_utc)
     else:
-        now_sec = int(now_utc.replace(tzinfo=datetime.timezone.utc).timestamp()) if now_utc.tzinfo else int(now_utc.timestamp())
+        if now_utc.tzinfo is None:
+            now_sec = int(now_utc.replace(tzinfo=datetime.timezone.utc).timestamp())
+        else:
+            now_sec = int(now_utc.astimezone(datetime.timezone.utc).timestamp())
 
     diff = max(0, now_sec - int(timestamp_sec))
     if diff < 60:
