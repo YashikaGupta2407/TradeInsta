@@ -19,10 +19,12 @@ class TestBrokerData(unittest.TestCase):
         self.orig_env = os.environ.copy()
         for k in ("FYERS_APP_ID", "FYERS_ACCESS_TOKEN", "UPSTOX_ACCESS_TOKEN"):
             os.environ.pop(k, None)
+        broker_data._MARKET_OVERVIEW_FALLBACK_CACHE.clear()
 
     def tearDown(self):
         os.environ.clear()
         os.environ.update(self.orig_env)
+        broker_data._MARKET_OVERVIEW_FALLBACK_CACHE.clear()
 
     def test_active_broker_detection(self):
         self.assertIsNone(broker_data.active_broker())

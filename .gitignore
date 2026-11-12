@@ -16,6 +16,9 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Temporary and Scratch Directories
+scratch/
+
 # Operating System
 .DS_Store
 Thumbs.db

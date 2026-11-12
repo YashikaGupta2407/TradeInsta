@@ -206,8 +206,11 @@ def clock24(minutes):
 # ---------------------------------------------------------------- data
 
 def chart_url(sym, host="query2"):
+    s = sym.upper()
+    if not (s.endswith(".NS") or s.endswith(".BO")):
+        s = s.replace(".", "-")
     return "https://%s.finance.yahoo.com/v8/finance/chart/%s?range=60d&interval=5m" % (
-        host, urllib.parse.quote(sym.upper().replace(".", "-")))
+        host, urllib.parse.quote(s))
 
 
 def _sleep(seconds):
@@ -299,6 +302,8 @@ def parse_bars(result, now_utc):
     q = ((result.get("indicators") or {}).get("quote") or [{}])[0] or {}
     cols = [q.get(k) or [] for k in ("open", "high", "low", "close", "volume")]
     as_of = now_utc
+    if as_of is not None and getattr(as_of, "tzinfo", None) is not None:
+        as_of = (as_of - as_of.utcoffset()).replace(tzinfo=None)
     rmt = meta.get("regularMarketTime")
     if isinstance(rmt, (int, float)) and utc_of(rmt) < as_of:
         as_of = utc_of(rmt)
@@ -340,18 +345,40 @@ def split_sessions(bars):
     return days
 
 
-def full_sessions(days, before, session_bars=SESSION_BARS):
+def full_sessions(days, before, session_bars=SESSION_BARS, max_slot_needed=None, indian=False):
     """Full sessions strictly before the plan's date, oldest first,
-    and the short ones that were left out (half days, gaps)."""
+    and the short ones that were left out (half days, gaps).
+
+    For Indian markets (NSE), validates sessions using timestamp continuity:
+    - Opening range candles (slots 0..2 for 15m ORB) must be present.
+    - All candles up to max_slot_needed (e.g. slot 71 for 15:15) must be present and contiguous.
+    - Missing tail candles outside the simulation horizon (e.g. Yahoo 15:15/15:20
+      when flat_by is 15:15 / slot 71) are permitted.
+    - Gaps in the active trading window cause session rejection.
+    """
     full, short = [], []
     for d in sorted(days):
         if d >= before:
             continue
         s = days[d]
-        if len(s) == session_bars:
-            full.append((d, [s[i] for i in range(session_bars)]))
+        if indian:
+            # 1. Verify opening range (slots 0, 1, 2)
+            if any(i not in s for i in range(3)):
+                short.append({"date": d, "bars": len(s)})
+                continue
+            # 2. Verify all candles required for simulation horizon (slots 0..req_slots)
+            req_slots = max_slot_needed if max_slot_needed is not None else 71
+            if any(i not in s for i in range(req_slots + 1)):
+                short.append({"date": d, "bars": len(s)})
+                continue
+            # Session is valid up to req_slots
+            full.append((d, [s[i] for i in range(req_slots + 1)]))
         else:
-            short.append({"date": d, "bars": len(s)})
+            if len(s) == session_bars:
+                full.append((d, [s[i] for i in range(session_bars)]))
+            else:
+                short.append({"date": d, "bars": len(s)})
+
     return full, short
 
 
@@ -361,7 +388,7 @@ def build_pool(sessions, session_bars=SESSION_BARS):
     """pool[i] = every past session's bar i as (o, h, l, c) / bar i-1's close, in date order."""
     pool = [[] for _ in range(session_bars)]
     for _, D in sessions:
-        for i in range(1, session_bars):
+        for i in range(1, min(len(D), session_bars)):
             pc = D[i - 1]["c"]
             pool[i].append((D[i]["o"] / pc, D[i]["h"] / pc, D[i]["l"] / pc, D[i]["c"] / pc))
     return pool
@@ -719,7 +746,8 @@ def time_machine(text, plan, now_utc, replays=10000, seed=19, window=2, until=No
     result = chart_result(text, sym)
     meta, bars, dropped = parse_bars(result, now_utc)
     msym = str(meta.get("symbol") or "").upper()
-    if msym and msym != sym.replace(".", "-"):
+    expected_sym = sym if (sym.endswith(".NS") or sym.endswith(".BO")) else sym.replace(".", "-")
+    if msym and msym != expected_sym:
         raise TMError("the data is for %s but the plan is for %s" % (msym, sym))
     gran = meta.get("dataGranularity")
     if gran and gran != "5m":
@@ -753,13 +781,15 @@ def time_machine(text, plan, now_utc, replays=10000, seed=19, window=2, until=No
     if not eb["l"] - 0.01 <= plan["entry"] <= eb["h"] + 0.01:
         warn.append("the plan's entry %.2f is outside that bar's range %.2f to %.2f"
                     % (plan["entry"], eb["l"], eb["h"]))
-    sessions, short = full_sessions(days, plan["date"], session_bars=session_bars)
+    req_last = last if indian else None
+    sessions, short = full_sessions(days, plan["date"], session_bars=session_bars, max_slot_needed=req_last, indian=indian)
     if len(sessions) < MIN_SESSIONS:
         raise TMError("only %d full session(s) of %s before %s in the data; the time machine needs at least %d"
                       % (len(sessions), sym, plan["date"], MIN_SESSIONS))
-    pool = build_pool(sessions, session_bars=session_bars)
+    pool_bars = (last + 1) if (indian and last < session_bars) else session_bars
+    pool = build_pool(sessions, session_bars=pool_bars)
     mc = simulate(pool, plan["entry"], plan["stop"], plan["target"], k, last, replays, seed, window, plan["side"],
-                  session_bars=session_bars)
+                  session_bars=pool_bars)
     mc = dict(mc, until=clock24(until_min), pool_sessions=len(sessions), pool_from=sessions[0][0],
               pool_to=sessions[-1][0],
               band_times=[clock24(open_min + 5 * (j + 1)) for j in range(k, last + 1)])

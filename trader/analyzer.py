@@ -583,10 +583,17 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
     pos_val = 0.0
     tot_charges = 0.0
     charges_breakdown = {}
-    budget_val = float(config.get("budget", 500000))
+    budget_raw = config.get("budget")
+    try:
+        budget_val = float(budget_raw) if budget_raw is not None else 0.0
+    except (ValueError, TypeError):
+        budget_val = 0.0
     max_loss_val = float(config.get("max_loss_per_trade_inr", 2000))
 
-    if entry_level and stop_level and day_phase != "0915_to_0930":
+    if budget_val <= 0:
+        errors.append("Step 5 (Sizing): Missing or invalid account budget in config. Set a positive budget in trader/config.json.")
+
+    if entry_level and stop_level and day_phase != "0915_to_0930" and budget_val > 0:
         plan_doc = {
             "symbol": resolved_sym,
             "side": "buy",
@@ -636,6 +643,9 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
     elif is_weekend:
         risk_verdict = "BLOCK"
         risk_reasons.append("Market is closed today (Weekend).")
+    elif budget_val <= 0:
+        risk_verdict = "BLOCK"
+        risk_reasons.append("Missing or invalid account budget: configure a positive 'budget' in trader/config.json before checking risk.")
     elif day_phase == "0915_to_0930":
         risk_verdict = "BLOCK"
         risk_reasons.append("Opening range is still forming; entries not allowed before 09:30.")
@@ -685,7 +695,8 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
         "status": "ok",
         "timestamp": step6_ts,
         "verdict": risk_verdict,
-        "reason": " • ".join(risk_reasons) if risk_reasons else risk_verdict
+        "reason": " • ".join(risk_reasons) if risk_reasons else risk_verdict,
+        "reasons": risk_reasons
     }
     steps["risk_check"] = step6
     notify(6, "Risk check", "ok", f"Verdict: {risk_verdict}")
@@ -710,12 +721,13 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
                 "entry": entry_level,
                 "stop": stop_level,
                 "target": target_level,
-                "date": now_date_str
+                "date": now_date_str,
+                "flat_by": "15:15"
             }
             # Attempt to fetch 60d historical bars via time machine
             hist_text = tm_mod.fetch_chart(resolved_sym)
             if hist_text:
-                tm_res = tm_mod.time_machine(hist_text, plan_obj, now_utc, replays=1000)
+                tm_res = tm_mod.time_machine(hist_text, plan_obj, now_utc, replays=1000, until="15:15" if is_indian_stock else None)
                 mc = tm_res.get("monte_carlo", {})
                 hist = tm_res.get("history", {})
                 tm_win_rate = round(float(mc.get("target_first_pct", 50.0)), 1)
@@ -727,17 +739,21 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
             errors.append(f"Step 7 (Time Machine): {e}")
 
     # Fallback or Sample Mode statistics
-    if tm_win_rate is None:
-        tm_win_rate = 54.2
-        tm_avg_win = 1.85
-        tm_avg_loss = 1.00
-        tm_samples = 42
-        tm_verdict = "Slight positive edge based on historical sample"
+    if is_sample_mode:
+        if tm_win_rate is None:
+            tm_win_rate = 54.2
+            tm_avg_win = 1.85
+            tm_avg_loss = 1.00
+            tm_samples = 42
+            tm_verdict = "Sample mode: Simulated historical distribution"
+    else:
+        if tm_win_rate is None:
+            tm_verdict = "Historical simulation unavailable or insufficient sessions"
 
     step7 = {
         "step_num": 7,
         "name": "Historical odds",
-        "status": "ok",
+        "status": "ok" if (tm_win_rate is not None and tm_samples >= 15) or is_sample_mode else "warning",
         "timestamp": step7_ts,
         "win_rate": tm_win_rate,
         "avg_win": tm_avg_win,
@@ -746,8 +762,8 @@ def analyze_symbol(symbol: str, now=None, is_sample_mode: bool = False, config: 
         "verdict": tm_verdict,
         "source": "Time Machine (60-day 5-minute replay)"
     }
-    steps["historical_odds"] = step7
-    notify(7, "Historical odds", "ok", f"Win Rate: {tm_win_rate}% ({tm_samples} sessions)")
+    notify_msg = f"Win Rate: {tm_win_rate}% ({tm_samples} sessions)" if tm_win_rate is not None else tm_verdict
+    notify(7, "Historical odds", step7["status"], notify_msg)
 
     # =========================================================================
     # STEP 8: Context (Volume vs 20d Avg, Headlines, Reported Deal Flow)

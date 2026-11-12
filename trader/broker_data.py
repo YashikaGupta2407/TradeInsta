@@ -12,9 +12,11 @@ Data access only (read-only):
 - Never prints tokens or any part of credentials.
 """
 
+import concurrent.futures
 import datetime
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -26,6 +28,10 @@ UA = "Mozilla/5.0 (compatible; day-trader-skill/2.0; +https://github.com/Skill-T
 
 UPSTOX_INSTRUMENTS_CACHE = None
 UPSTOX_MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upstox_instruments.json")
+
+# In-memory fallback cache for market overview quotes (resilient against network glitches/429)
+_MARKET_OVERVIEW_FALLBACK_CACHE = {}
+_MARKET_OVERVIEW_CACHE_LOCK = threading.Lock()
 
 # Built-in fallback mappings for standard liquid NSE stocks
 COMMON_UPSTOX_INSTRUMENTS = {
@@ -49,6 +55,8 @@ COMMON_UPSTOX_INSTRUMENTS = {
     "WIPRO": "NSE_EQ|INE075A01022",
     "NTPC": "NSE_EQ|INE733E01010",
     "ONGC": "NSE_EQ|INE213A01029",
+    "GUJGASLTD": "NSE_EQ|INE844O01030",
+    "LTIM": "NSE_EQ|INE214T01019",
 }
 
 __all__ = [
@@ -532,7 +540,7 @@ def fetch_upstox_quotes(syms, timeout=DEFAULT_TIMEOUT):
     if not instruments:
         return None
 
-    query = urllib.parse.urlencode({"instrument_key": ",".join(instruments)})
+    query = urllib.parse.urlencode({"instrument_key": ",".join(instruments)}, safe=",")
     url = "https://api.upstox.com/v2/market-quote/quotes?%s" % query
     req = urllib.request.Request(url, headers={
         "Authorization": "Bearer %s" % token,
@@ -588,11 +596,17 @@ def fetch_upstox_quotes(syms, timeout=DEFAULT_TIMEOUT):
                 if norm_key in inst_k or inst_k in norm_key:
                     orig_sym = sym_v
                     break
+        if not orig_sym and ":" in key:
+            raw_k = key.split(":")[-1]
+            for s in syms:
+                if s.upper().replace(".NS", "") == raw_k:
+                    orig_sym = s.upper()
+                    break
         if orig_sym and isinstance(v, dict):
             lp = float(v.get("last_price") or 0.0)
             ohlc = v.get("ohlc") or {}
             prev = float(ohlc.get("close") or lp)
-            ts_str = v.get("last_trade_time") or ""
+            ts_str = str(v.get("last_trade_time") or "")
             vol = int(v.get("volume") or 0)
             chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
             clean_s = orig_sym.replace(".NS", "")
@@ -611,6 +625,7 @@ def fetch_upstox_quotes(syms, timeout=DEFAULT_TIMEOUT):
             }
             out[clean_s] = q_obj
             out[orig_sym] = q_obj
+            out[f"{clean_s}.NS"] = q_obj
     return out
 
 
@@ -713,13 +728,100 @@ def _generate_sample_quotes(symbols):
     return out
 
 
-def fetch_market_overview_quotes(symbols, is_sample_mode=False):
+def fetch_yahoo_quote_single(sym, timeout=DEFAULT_TIMEOUT):
+    """Fetch single symbol quote from Yahoo Finance with request timeout and 429 backoff."""
+    sym_clean = sym.strip().upper()
+    if not (sym_clean.endswith(".NS") or sym_clean.endswith(".BO")):
+        sym_req = f"{sym_clean}.NS"
+    else:
+        sym_req = sym_clean
+    ticker_base = sym_clean.replace(".NS", "").replace(".BO", "")
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym_req}?range=1d&interval=1d"
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+            res = (data.get("chart") or {}).get("result") or []
+            if not res:
+                return None
+            r0 = res[0]
+            meta = r0.get("meta") or {}
+            lp = meta.get("regularMarketPrice")
+            prev = meta.get("previousClose") or meta.get("chartPreviousClose")
+            if lp is None:
+                q_ind = ((r0.get("indicators") or {}).get("quote") or [{}])[0]
+                closes = q_ind.get("close") or []
+                for c in reversed(closes):
+                    if c is not None:
+                        lp = float(c)
+                        break
+            if lp is None:
+                return None
+            lp = float(lp)
+            prev = float(prev or lp)
+            chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
+            rmt = meta.get("regularMarketTime")
+            ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            t_str = datetime.datetime.fromtimestamp(rmt, tz=datetime.timezone.utc).astimezone(ist_tz).strftime("%Y-%m-%d %H:%M:%S IST") if rmt else ""
+
+            return {
+                "symbol": ticker_base,
+                "price": lp,
+                "prev_close": prev,
+                "open": float(meta.get("regularMarketDayOpen") or lp),
+                "high": float(meta.get("regularMarketDayHigh") or lp),
+                "low": float(meta.get("regularMarketDayLow") or lp),
+                "volume": int(meta.get("regularMarketVolume") or 0),
+                "change_pct": chg_pct,
+                "net_change": round(lp - prev, 2),
+                "time": t_str,
+                "source": "yahoo",
+                "timestamp": rmt
+            }
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt == 0:
+                time.sleep(0.5)
+                continue
+            return None
+        except Exception:
+            return None
+    return None
+
+
+def fetch_yahoo_quotes_batch(symbols, timeout=DEFAULT_TIMEOUT, max_workers=5):
+    """Fetch quotes for a list of symbols from Yahoo using bounded controlled concurrency (max 5 workers)."""
+    if not symbols:
+        return {}
+    out = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_sym = {executor.submit(fetch_yahoo_quote_single, s, timeout): s for s in symbols}
+        for future in concurrent.futures.as_completed(future_to_sym):
+            s = future_to_sym[future]
+            try:
+                q = future.result()
+                if q:
+                    clean = s.replace(".NS", "").replace(".BO", "").upper()
+                    out[clean] = q
+                    out[f"{clean}.NS"] = q
+            except Exception:
+                pass
+    return out
+
+
+def fetch_market_overview_quotes(symbols=None, is_sample_mode=False, enable_yahoo_fallback=True):
     """Fetch live or sample quotes for a batch of symbols with clear provenance.
 
     - In sample mode (is_sample_mode=True): returns deterministic sample fixture quotes.
-    - In live mode (is_sample_mode=False): queries Upstox API v2 using official instrument keys,
-      or Fyers if configured, falling back cleanly to Yahoo Finance if broker credentials are not set.
-      Never silently substitutes sample data when live fetching fails.
+    - In live mode (is_sample_mode=False):
+        1. Prioritizes Upstox API v2 / Fyers via bulk batch quote retrieval.
+        2. If broker is unconfigured, or broker call fails/times out, falls back cleanly to Yahoo Finance
+           using controlled bounded concurrency (max 5 threads), avoiding rate limits and slowness.
+        3. Never silently substitutes sample data when live fetching fails.
+        4. If a network outage occurs, serves from last known cached fallback if available,
+           explicitly marked with is_stale=True and never labeled as live.
 
     Returns:
         dict: {symbol: quote_dict}
@@ -740,60 +842,49 @@ def fetch_market_overview_quotes(symbols, is_sample_mode=False):
     if is_sample_mode:
         return _generate_sample_quotes(symbols)
 
-    # 2. Live Mode: query real broker API (Upstox / Fyers)
+    # 2. Live Mode: query real broker API (Upstox / Fyers) first
     broker = active_broker()
     quotes = {}
+
     if broker:
-        # Batch in chunks of 100 symbols (strictly within Upstox batch limit of 500)
-        chunk_size = 100
+        # Upstox supports up to 500 instrument keys in a single batch request
+        chunk_size = 500
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
-            b_quotes = get_realtime_quotes(chunk, timeout=DEFAULT_TIMEOUT)
-            if b_quotes:
-                quotes.update(b_quotes)
-
-    # For symbols missing from broker or if broker credentials are not set, query Yahoo fallback
-    missing = [s for s in symbols if s not in quotes and f"{s}.NS" not in quotes]
-    if missing and not broker:
-        alerts = None
-        try:
-            import importlib.util
-            p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "trader-alerts", "alerts.py"))
-            if not os.path.exists(p):
-                p = os.path.abspath(os.path.join(os.path.dirname(__file__), "alerts.py"))
-            if os.path.exists(p):
-                spec = importlib.util.spec_from_file_location("trader_alerts_mod", p)
-                alerts_mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(alerts_mod)
-                alerts = alerts_mod
-        except Exception:
-            alerts = None
-
-        if alerts:
             try:
-                y_quotes, _ = alerts.get_quotes(missing[:60], source="yahoo", pause=0.05)
-                for s, yq in y_quotes.items():
-                    s_clean = s.replace(".NS", "").upper()
-                    lp = float(yq.get("price") or 0.0)
-                    prev = float(yq.get("prev_close") or lp)
-                    chg_pct = round((lp - prev) / prev * 100, 2) if prev else 0.0
-                    q_obj = {
-                        "symbol": s_clean,
-                        "price": lp,
-                        "prev_close": prev,
-                        "open": yq.get("open"),
-                        "high": yq.get("high"),
-                        "low": yq.get("low"),
-                        "volume": 0,
-                        "change_pct": chg_pct,
-                        "net_change": round(lp - prev, 2),
-                        "time": yq.get("time") or "",
-                        "source": "yahoo"
-                    }
-                    quotes[s_clean] = q_obj
-                    quotes[f"{s_clean}.NS"] = q_obj
+                b_quotes = get_realtime_quotes(chunk, timeout=DEFAULT_TIMEOUT)
+                if b_quotes:
+                    quotes.update(b_quotes)
             except Exception as e:
-                _log_fallback("Yahoo fallback error: %s" % e, syms=missing[:60], broker="yahoo")
+                _log_fallback(f"broker call failed ({e})", syms=chunk, broker=broker)
+    else:
+        _log_fallback("token not set", syms=symbols, broker="upstox")
+
+    # 3. For any symbols missing from broker or if broker credentials are not set, query Yahoo fallback
+    missing = [s for s in symbols if s not in quotes and f"{s}.NS" not in quotes]
+    if missing and enable_yahoo_fallback:
+        y_quotes = fetch_yahoo_quotes_batch(missing, timeout=DEFAULT_TIMEOUT, max_workers=5)
+        if y_quotes:
+            quotes.update(y_quotes)
+
+    # 4. Update the in-memory fallback cache with freshly received quotes
+    with _MARKET_OVERVIEW_CACHE_LOCK:
+        for sym_k, q_val in quotes.items():
+            _MARKET_OVERVIEW_FALLBACK_CACHE[sym_k] = dict(q_val)
+
+    # 5. If some symbols are still completely missing after live fetch, check fallback cache
+    still_missing = [s for s in symbols if s not in quotes and f"{s}.NS" not in quotes]
+    if still_missing:
+        with _MARKET_OVERVIEW_CACHE_LOCK:
+            for s in still_missing:
+                clean_s = s.replace(".NS", "").replace(".BO", "").upper()
+                cached_q = _MARKET_OVERVIEW_FALLBACK_CACHE.get(clean_s) or _MARKET_OVERVIEW_FALLBACK_CACHE.get(f"{clean_s}.NS")
+                if cached_q:
+                    stale_copy = dict(cached_q)
+                    stale_copy["is_stale"] = True
+                    stale_copy["source"] = f"{stale_copy.get('source', 'yahoo')} (stale)"
+                    quotes[clean_s] = stale_copy
+                    quotes[f"{clean_s}.NS"] = stale_copy
 
     # In Live Mode, return strictly what was legitimately retrieved (never silently fake sample data)
     return quotes
